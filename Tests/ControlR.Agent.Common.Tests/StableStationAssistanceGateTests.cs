@@ -45,6 +45,25 @@ public class StableStationAssistanceGateTests
   }
 
   [Fact]
+  public void Apply_Enable_WithConnectorManagedEndpoint_AcceptsSignedEndpoint()
+  {
+    var gate = new StableStationAssistanceGate(
+      _timeProvider,
+      Options.Create(new StableStationAssistanceGateOptions
+      {
+        Enabled = true,
+        EndpointId = string.Empty,
+        Port = 48173,
+        SharedSecretFile = "unused-by-unit-test"
+      }),
+      NullLogger<StableStationAssistanceGate>.Instance);
+    var command = CreateCommand("enable", 8, _timeProvider.GetUtcNow().AddSeconds(40));
+
+    Assert.True(gate.Apply(command, _secret, out var reason), reason);
+    Assert.True(gate.IsAllowed(CreateRequest(8), out var allowedReason), allowedReason);
+  }
+
+  [Fact]
   public void Apply_InvalidSignature_IsRejectedWithoutOpeningGate()
   {
     var gate = CreateGate();

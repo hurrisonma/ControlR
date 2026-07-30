@@ -9,8 +9,9 @@ using Microsoft.Extensions.Options;
 
 namespace ControlR.Agent.Common.Services;
 
-public class StableStationAssistanceGateServer(
+internal class StableStationAssistanceGateServer(
   IStableStationAssistanceGate gate,
+  IStableStationAgentProvisioner provisioner,
   IOptions<StableStationAssistanceGateOptions> options,
   ILogger<StableStationAssistanceGateServer> logger) : BackgroundService
 {
@@ -20,6 +21,7 @@ public class StableStationAssistanceGateServer(
   private readonly IStableStationAssistanceGate _gate = gate;
   private readonly ILogger<StableStationAssistanceGateServer> _logger = logger;
   private readonly StableStationAssistanceGateOptions _options = options.Value;
+  private readonly IStableStationAgentProvisioner _provisioner = provisioner;
   private TcpListener? _listener;
   private byte[] _sharedSecret = [];
 
@@ -40,10 +42,19 @@ public class StableStationAssistanceGateServer(
 
     _listener = new TcpListener(IPAddress.Loopback, _options.Port);
     _listener.Start(8);
-    _logger.LogInformation(
-      "StableStation assistance gate listening on loopback port {Port} for endpoint {EndpointId}.",
-      _options.Port,
-      _options.EndpointId);
+    if (string.IsNullOrWhiteSpace(_options.EndpointId))
+    {
+      _logger.LogInformation(
+        "StableStation assistance gate listening on loopback port {Port} for the locally authenticated Connector endpoint.",
+        _options.Port);
+    }
+    else
+    {
+      _logger.LogInformation(
+        "StableStation assistance gate listening on loopback port {Port} for endpoint {EndpointId}.",
+        _options.Port,
+        _options.EndpointId);
+    }
 
     try
     {
@@ -76,7 +87,14 @@ public class StableStationAssistanceGateServer(
     CancellationToken cancellationToken)
   {
     var body = JsonSerializer.SerializeToUtf8Bytes(payload);
-    var reason = statusCode == 200 ? "OK" : statusCode == 404 ? "Not Found" : statusCode == 403 ? "Forbidden" : "Bad Request";
+    var reason = statusCode switch
+    {
+      200 => "OK",
+      403 => "Forbidden",
+      404 => "Not Found",
+      503 => "Service Unavailable",
+      _ => "Bad Request"
+    };
     var headers = Encoding.ASCII.GetBytes(
       $"HTTP/1.1 {statusCode} {reason}\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n");
     await stream.WriteAsync(headers, cancellationToken);
@@ -99,11 +117,15 @@ public class StableStationAssistanceGateServer(
           await using var stream = client.GetStream();
           using var reader = new StreamReader(stream, Encoding.ASCII, false, 1024, true);
           var requestLine = await reader.ReadLineAsync(requestToken);
-          if (requestLine != "POST /v1/gate HTTP/1.1")
+          var isGateRequest = requestLine == "POST /v1/gate HTTP/1.1";
+          var isProvisioningRequest = requestLine == "POST /v1/provision HTTP/1.1";
+          if (!isGateRequest && !isProvisioningRequest)
           {
             await WriteResponse(stream, 404, new { ok = false, error = "not_found" }, requestToken);
             return;
           }
+          requestCancellation.CancelAfter(
+            isProvisioningRequest ? TimeSpan.FromSeconds(15) : TimeSpan.FromSeconds(3));
 
           var contentLength = -1;
           var headerBytes = requestLine.Length;
@@ -155,15 +177,44 @@ public class StableStationAssistanceGateServer(
             read += count;
           }
 
-          var command = JsonSerializer.Deserialize<StableStationAssistanceGateCommand>(
+          var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+          if (isProvisioningRequest)
+          {
+            var command = JsonSerializer.Deserialize<StableStationAgentProvisioningCommand>(
+              body,
+              jsonOptions);
+            if (command is null)
+            {
+              await WriteResponse(stream, 400, new { ok = false, error = "invalid_command" }, requestToken);
+              return;
+            }
+            var result = await _provisioner.Provision(
+              command,
+              _sharedSecret,
+              requestToken);
+            if (!result.IsSuccess)
+            {
+              await WriteResponse(stream, 503, new { ok = false, error = result.Error }, requestToken);
+              return;
+            }
+            await WriteResponse(stream, 200, new
+            {
+              ok = true,
+              tenantId = result.TenantId,
+              deviceId = result.DeviceId
+            }, requestToken);
+            return;
+          }
+
+          var gateCommand = JsonSerializer.Deserialize<StableStationAssistanceGateCommand>(
             body,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-          if (command is null)
+            jsonOptions);
+          if (gateCommand is null)
           {
             await WriteResponse(stream, 400, new { ok = false, error = "invalid_command" }, requestToken);
             return;
           }
-          if (!_gate.Apply(command, _sharedSecret, out var reason))
+          if (!_gate.Apply(gateCommand, _sharedSecret, out var reason))
           {
             await WriteResponse(stream, 403, new { ok = false, error = reason }, requestToken);
             return;
@@ -189,12 +240,11 @@ public class StableStationAssistanceGateServer(
   private void ValidateOptions()
   {
     if (_options.Port is < 1024 or > 65535 ||
-        string.IsNullOrWhiteSpace(_options.EndpointId) ||
         string.IsNullOrWhiteSpace(_options.SharedSecretFile) ||
         !File.Exists(_options.SharedSecretFile))
     {
       throw new InvalidOperationException(
-        "Enabled StableStation assistance gate requires EndpointId, Port, and an existing SharedSecretFile.");
+        "Enabled StableStation assistance gate requires Port and an existing SharedSecretFile.");
     }
   }
 

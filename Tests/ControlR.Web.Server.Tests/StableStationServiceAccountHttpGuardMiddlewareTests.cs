@@ -19,6 +19,7 @@ public class StableStationServiceAccountHttpGuardMiddlewareTests
   [Theory]
   [InlineData("GET", "/api/v1/devices/4d124e1d-652f-4b45-9187-f0dd7cb1ea49")]
   [InlineData("POST", "/api/v1/assistance-authorizations")]
+  [InlineData("POST", "/api/v1/stablestation/agent-enrollments")]
   [InlineData("GET", "/api/v1/assistance-authorizations/4d124e1d-652f-4b45-9187-f0dd7cb1ea49")]
   [InlineData("DELETE", "/api/v1/assistance-authorizations/4d124e1d-652f-4b45-9187-f0dd7cb1ea49")]
   public void IsAllowed_StableStationAdapterRoutes_ReturnsTrue(string method, string path)

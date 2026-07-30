@@ -102,23 +102,7 @@ jobs:
             -p:Version=${{ needs.resolve-version.outputs.value }} `
             -p:FileVersion=${{ needs.resolve-version.outputs.value }}
 
-      - name: Publish Installer
-        shell: pwsh
-        run: |
-          dotnet publish .\ControlR.Agent.Installer\ControlR.Agent.Installer.csproj `
-            --configuration Release `
-            --runtime win-x64 `
-            --self-contained true `
-            --output "$env:RUNNER_TEMP\installer" `
-            -p:PublishSingleFile=true `
-            -p:UseAppHost=true `
-            -p:EnableCompressionInSingleFile=true `
-            -p:DebugType=none `
-            -p:BundleSigningEnabled=false `
-            -p:Version=${{ needs.resolve-version.outputs.value }} `
-            -p:FileVersion=${{ needs.resolve-version.outputs.value }}
-
-      - name: Package and verify client downloads
+      - name: Package and verify Connector-managed runtime
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -128,13 +112,26 @@ jobs:
           New-Item -Path $downloads, $desktop -ItemType Directory -Force | Out-Null
 
           $agent = Join-Path $env:RUNNER_TEMP 'agent\ControlR.Agent.exe'
-          $installer = Join-Path $env:RUNNER_TEMP 'installer\ControlR.Agent.Installer.exe'
           if (-not (Test-Path $agent -PathType Leaf)) { throw "Agent executable is missing: $agent" }
-          if (-not (Test-Path $installer -PathType Leaf)) { throw "Installer executable is missing: $installer" }
 
           Copy-Item $agent (Join-Path $bundle 'ControlR.Agent.exe') -Force
           Copy-Item (Join-Path $env:RUNNER_TEMP 'desktop-client\*') $desktop -Recurse -Force
-          Copy-Item $installer (Join-Path $downloads 'ControlR.Agent.Installer.exe') -Force
+          Copy-Item .\LICENSE.txt (Join-Path $bundle 'ControlR-LICENSE.txt') -Force
+
+          $runtimeManifest = [ordered]@{
+            schema = "stablestation.controlr.windows-runtime.v1"
+            version = "${{ needs.resolve-version.outputs.value }}"
+            sourceRevision = "${{ github.sha }}"
+            platform = "win-x64"
+            lifecycleOwner = "ss-trading-connector"
+            entrypoint = "ControlR.Agent.exe"
+            serviceArguments = @("run")
+            standaloneInstaller = $false
+          }
+          $runtimeManifestPath = Join-Path $bundle 'stablestation-runtime-manifest.json'
+          $runtimeManifest | ConvertTo-Json -Depth 4 |
+            Set-Content $runtimeManifestPath -Encoding utf8NoBOM
+          Copy-Item $runtimeManifestPath $downloads -Force
           Compress-Archive -Path (Join-Path $bundle '*') `
             -DestinationPath (Join-Path $downloads 'ControlR.Agent.bundle.zip') -Force
 
@@ -144,9 +141,6 @@ jobs:
           }
           $manifest | Set-Content (Join-Path $downloads 'SHA256SUMS.txt') -Encoding ascii
 
-          if ((Get-Item (Join-Path $downloads 'ControlR.Agent.Installer.exe')).Length -le 0) {
-            throw 'Installer is empty.'
-          }
           if ((Get-Item (Join-Path $downloads 'ControlR.Agent.bundle.zip')).Length -le 0) {
             throw 'Agent bundle is empty.'
           }
@@ -157,13 +151,40 @@ jobs:
           name: stablestation-controlr-win-x64-${{ github.sha }}
           path: ${{ runner.temp }}\downloads\
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
+
+  validate:
+    name: Build and test StableStation extensions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Set up .NET
+        uses: ./.github/actions/setup-dotnet
+
+      - name: Build Agent tests
+        run: dotnet build Tests/ControlR.Agent.Common.Tests/ControlR.Agent.Common.Tests.csproj --verbosity quiet
+
+      - name: Run Agent tests
+        run: dotnet run --project Tests/ControlR.Agent.Common.Tests/ControlR.Agent.Common.Tests.csproj --no-build
+
+      - name: Build Server tests
+        run: dotnet build Tests/ControlR.Web.Server.Tests/ControlR.Web.Server.Tests.csproj --verbosity quiet
+
+      - name: Run Server tests
+        run: dotnet run --project Tests/ControlR.Web.Server.Tests/ControlR.Web.Server.Tests.csproj --no-build
 
   publish:
     name: Build and publish immutable image
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    needs: [resolve-version, build-windows-client]
+    needs: [resolve-version, build-windows-client, validate]
 
     steps:
       - name: Checkout exact source revision
@@ -229,7 +250,7 @@ jobs:
             echo "- Deploy as: \`${ImageRepository}@${ImageDigest}\`"
             echo "- Source commit: \`${GITHUB_SHA}\`"
             echo
-            echo "This image contains the StableStation RemoteDesktopOnly authorization, generation fencing, revoke/disconnect enforcement, and the matching unsigned Windows x64 Agent/Installer downloads."
+            echo "This image contains the StableStation RemoteDesktopOnly authorization, generation fencing, revoke/disconnect enforcement, and the matching unsigned Windows x64 Connector-managed runtime bundle."
             echo
-            echo "The Windows binaries are unsigned internal-test artifacts. Production rollout requires an approved code-signing identity."
+            echo "The Windows runtime is an unsigned internal-test artifact. Production rollout requires an approved code-signing identity."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -3,6 +3,7 @@ using ControlR.Libraries.Branding;
 using ControlR.Libraries.Shared.Services.FileSystem;
 using ControlR.Libraries.Shared.Services.Http;
 using ControlR.Libraries.Shared.Services.Processes;
+using ControlR.Agent.Common.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
@@ -46,6 +47,7 @@ internal class AgentMaintenanceService(
   IOptionsAccessor optionsAccessor,
   IHostApplicationLifetime appLifetime,
   IOptions<InstanceOptions> instanceOptions,
+  IOptions<StableStationAssistanceGateOptions> assistanceGateOptions,
   ILogger<AgentMaintenanceService> logger) : BackgroundService, IAgentMaintenanceService
 {
   private readonly IHostApplicationLifetime _appLifetime = appLifetime;
@@ -54,6 +56,7 @@ internal class AgentMaintenanceService(
   private readonly IFileSystem _fileSystem = fileSystem;
   private readonly IFileSystemPathProvider _fileSystemPathProvider = fileSystemPathProvider;
   private readonly IOptions<InstanceOptions> _instanceOptions = instanceOptions;
+  private readonly StableStationAssistanceGateOptions _assistanceGateOptions = assistanceGateOptions.Value;
   private readonly ILogger<AgentMaintenanceService> _logger = logger;
   private readonly IOptionsAccessor _optionsAccessor = optionsAccessor;
   private readonly IProcessManager _processManager = proessManager;
@@ -62,6 +65,12 @@ internal class AgentMaintenanceService(
 
   public async Task CheckForUpdate(bool force = false, CancellationToken cancellationToken = default)
   {
+    if (_assistanceGateOptions.ConnectorOwnsLifecycle)
+    {
+      _logger.LogInformation("Connector owns the agent lifecycle. Skipping the independent update path.");
+      return;
+    }
+
     if (!force && _optionsAccessor.DisableAutoUpdate)
     {
       _logger.LogInformation("Auto-update disabled in developer options.  Skipping update check.");
@@ -146,6 +155,14 @@ internal class AgentMaintenanceService(
 
   public async Task RepairDesktopClient(string reason, CancellationToken cancellationToken = default)
   {
+    if (_assistanceGateOptions.ConnectorOwnsLifecycle)
+    {
+      _logger.LogInformation(
+        "Connector owns the agent lifecycle. Skipping the independent desktop repair path. Reason: {Reason}",
+        reason);
+      return;
+    }
+
     using var logScope = _logger.BeginMemberScope();
     using var repairCts = new CancellationTokenSource(TimeSpan.FromMinutes(15));
     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
@@ -204,6 +221,12 @@ internal class AgentMaintenanceService(
 
   protected override async Task ExecuteAsync(CancellationToken stoppingToken)
   {
+    if (_assistanceGateOptions.ConnectorOwnsLifecycle)
+    {
+      _logger.LogInformation("Connector owns the agent lifecycle. Independent maintenance is disabled.");
+      return;
+    }
+
     if (_optionsAccessor.DisableAutoUpdate)
     {
       _logger.LogInformation("Auto-update disabled in developer options.  Skipping update check timer.");

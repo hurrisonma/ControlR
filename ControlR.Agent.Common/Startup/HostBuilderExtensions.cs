@@ -126,6 +126,7 @@ internal static class HostApplicationBuilderExtensions
     services.AddSingleton<IIpcClientAuthenticator, IpcClientAuthenticator>();
     services.AddSingleton<IAgentHeartbeatTimer, AgentHeartbeatTimer>();
     services.AddSingleton<IStableStationAssistanceGate, StableStationAssistanceGate>();
+    services.AddSingleton<IStableStationAgentProvisioner, StableStationAgentProvisioner>();
     services.AddControlrIpcServer<AgentRpcService>();
     services.AddStronglyTypedSignalrClient<IAgentHub, IAgentHubClient, AgentHubClient>(ServiceLifetime.Singleton);
 
@@ -171,15 +172,14 @@ internal static class HostApplicationBuilderExtensions
       services.AddHostedService<DotnetExtractDirectoryCleanupHostedService>();
       services.AddHostedService(s => s.GetRequiredService<IAgentMaintenanceService>());
       services.AddHostedService<IpcServerWatcher>();
+      services.AddHostedService<StableStationAssistanceGateServer>();
+      services.AddHostedService<StableStationAssistanceGateSessionTerminator>();
       services.AddHostedService<HubConnectionInitializer>();
       services.AddHostedService(x => x.GetRequiredService<IAgentHeartbeatTimer>());
       services.AddHostedService<MessageHandler>();
       services.AddHostedService<HostLifetimeEventResponder>();
       services.AddHostedService(s => s.GetRequiredService<ICpuUtilizationSampler>());
       services.AddHostedService<FilePermissionsEnforcer>();
-      services.AddHostedService<StableStationAssistanceGateServer>();
-      services.AddHostedService<StableStationAssistanceGateSessionTerminator>();
-
       if (OperatingSystem.IsWindowsVersionAtLeast(8))
       {
         services.AddSingleton<IDesktopClientLaunchTracker, DesktopClientLaunchTracker>();

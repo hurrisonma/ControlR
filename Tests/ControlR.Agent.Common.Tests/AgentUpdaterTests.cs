@@ -1,5 +1,6 @@
 using ControlR.Agent.Shared.Options;
 using ControlR.Agent.Shared.Services;
+using ControlR.Agent.Common.Configuration;
 using ControlR.Agent.Common.Services;
 using ControlR.ApiClient;
 using ControlR.ApiClient.Interfaces.Agent;
@@ -266,6 +267,28 @@ public class AgentMaintenanceServiceTests
       Times.Never);
   }
 
+  [Fact]
+  public async Task CheckForUpdate_WhenConnectorOwnsLifecycle_SkipsForcedUpdate()
+  {
+    var fixture = new AgentMaintenanceServiceFixture
+    {
+      ConnectorOwnsLifecycle = true
+    };
+    var updater = fixture.CreateMaintenanceService();
+
+    await updater.CheckForUpdate(force: true, cancellationToken: TestContext.Current.CancellationToken);
+
+    fixture.AgentUpdateApi.Verify(
+      x => x.GetBundleMetadata(It.IsAny<RuntimeId>(), It.IsAny<CancellationToken>()),
+      Times.Never);
+    fixture.DownloadsApi.Verify(
+      x => x.DownloadFile(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+      Times.Never);
+    fixture.ProcessManager.Verify(
+      x => x.Start(It.IsAny<string>(), It.IsAny<string>()),
+      Times.Never);
+  }
+
   private sealed class AgentMaintenanceServiceFixture
   {
     public AgentMaintenanceServiceFixture()
@@ -315,6 +338,7 @@ public class AgentMaintenanceServiceTests
     public Mock<IProcessManager> ProcessManager { get; } = new();
     public Mock<IOptionsAccessor> SettingsProvider { get; } = new();
     public Mock<ISystemEnvironment> SystemEnvironment { get; } = new();
+    public bool ConnectorOwnsLifecycle { get; init; }
 
     public AgentMaintenanceService CreateMaintenanceService()
     {
@@ -329,6 +353,10 @@ public class AgentMaintenanceServiceTests
         SettingsProvider.Object,
         HostApplicationLifetime.Object,
         Options.Create(new InstanceOptions { InstanceId = "instance-1" }),
+        Options.Create(new StableStationAssistanceGateOptions
+        {
+          ConnectorOwnsLifecycle = ConnectorOwnsLifecycle
+        }),
         NullLogger<AgentMaintenanceService>.Instance);
     }
 

@@ -165,7 +165,10 @@ public class StableStationAssistanceGate(
     out string reason)
   {
     if (command.Action is not ("enable" or "heartbeat" or "disable") ||
-        command.EndpointId != _options.EndpointId ||
+        string.IsNullOrWhiteSpace(command.EndpointId) ||
+        command.EndpointId.Length > 160 ||
+        (!string.IsNullOrWhiteSpace(_options.EndpointId) &&
+         command.EndpointId != _options.EndpointId) ||
         command.ConnectorInstanceId == Guid.Empty ||
         command.EnableGeneration <= 0 ||
         command.Nonce.Length is < 16 or > 128 ||

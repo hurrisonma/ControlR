@@ -45,6 +45,11 @@ public class StableStationServiceAccountHttpGuardMiddleware(RequestDelegate next
       return HttpMethods.IsPost(method);
     }
 
+    if (segments is ["api", "v1", "stablestation", "agent-enrollments"])
+    {
+      return HttpMethods.IsPost(method);
+    }
+
     return segments is ["api", "v1", "assistance-authorizations", var authorizationId] &&
       Guid.TryParse(authorizationId, out _) &&
       (HttpMethods.IsGet(method) || HttpMethods.IsDelete(method));
