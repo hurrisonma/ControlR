@@ -2,6 +2,9 @@ name: Publish StableStation Server Image
 run-name: Publish StableStation server ${{ github.sha }}
 
 on:
+  push:
+    tags:
+      - "stablestation-image-v*"
   workflow_dispatch:
     inputs:
       version:
@@ -27,16 +30,22 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      - name: Validate version
+      - name: Resolve and validate version
+        id: version
         shell: bash
         env:
-          ControlRVersion: ${{ inputs.version }}
+          DispatchVersion: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          ControlRVersion="$DispatchVersion"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            ControlRVersion="${GITHUB_REF_NAME#stablestation-image-v}"
+          fi
           if [[ ! "$ControlRVersion" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::version must contain four numeric components, for example 0.27.6.0"
             exit 1
           fi
+          echo "value=$ControlRVersion" >> "$GITHUB_OUTPUT"
 
       - name: Checkout exact source revision
         uses: actions/checkout@v7
@@ -68,9 +77,9 @@ jobs:
             org.opencontainers.image.description=Prototype-only StableStation ControlR server image
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
           build-args: |
-            CONTROLR_VERSION=${{ inputs.version }}
+            CONTROLR_VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha,scope=stablestation-controlr-server
           cache-to: type=gha,mode=max,scope=stablestation-controlr-server
           provenance: mode=max

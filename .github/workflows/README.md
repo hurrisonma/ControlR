@@ -84,8 +84,10 @@ Docker images are published to Docker Hub:
 
 ## StableStation GHCR Image
 
-The `publish-stablestation-ghcr.yml` workflow is a fork-specific, manually triggered
-publisher for the isolated StableStation prototype.
+The `publish-stablestation-ghcr.yml` workflow is a fork-specific publisher for the
+isolated StableStation prototype. It can be started manually after the workflow is
+on the default branch, or by pushing a controlled
+`stablestation-image-vX.Y.Z.W` tag whose version has four numeric components.
 
 - It builds `linux/amd64` from the exact selected Git revision.
 - It requires an explicit four-component numeric ControlR version.
