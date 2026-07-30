@@ -152,7 +152,7 @@ jobs:
           }
 
       - name: Upload Windows client artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stablestation-controlr-win-x64-${{ github.sha }}
           path: ${{ runner.temp }}\downloads\
@@ -173,7 +173,7 @@ jobs:
           submodules: recursive
 
       - name: Download Windows client into server image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: stablestation-controlr-win-x64-${{ github.sha }}
           path: ControlR.Web.Server/wwwroot/downloads/win-x64
