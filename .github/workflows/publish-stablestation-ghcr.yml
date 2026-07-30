@@ -212,6 +212,8 @@ jobs:
       - name: Build and publish server image
         id: publish
         uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: .
           file: .github/docker/stablestation-server.Dockerfile
