@@ -5,6 +5,7 @@ public record StableStationAgentProvisioningCommand(
   Guid TenantId,
   Guid InstallerKeyId,
   string InstallerKeySecret,
+  Uri ServerUri,
   long IssuedAtUnixSeconds,
   string Nonce,
   string Signature);

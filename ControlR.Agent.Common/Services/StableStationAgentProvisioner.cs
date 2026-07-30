@@ -1,10 +1,11 @@
 using System.Globalization;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using ControlR.Agent.Common.Configuration;
 using ControlR.Agent.Shared.Options;
 using ControlR.Agent.Shared.Services;
-using ControlR.ApiClient;
+using ControlR.Libraries.Api.Contracts.Constants;
 using ControlR.Libraries.Api.Contracts.Dtos.ServerApi.Internal;
 using ControlR.Libraries.Shared.Services.Encryption;
 using Microsoft.Extensions.Options;
@@ -25,9 +26,58 @@ internal record StableStationAgentProvisioningResult(
   Guid TenantId,
   Guid DeviceId);
 
+internal interface IStableStationAgentEnrollmentClient
+{
+  Task<bool> CreateDevice(
+    Uri serverUri,
+    CreateDeviceRequestDto request,
+    CancellationToken cancellationToken);
+}
+
+internal sealed class StableStationAgentEnrollmentClient(
+  IHttpClientFactory httpClientFactory,
+  ILogger<StableStationAgentEnrollmentClient> logger) : IStableStationAgentEnrollmentClient
+{
+  private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
+  private readonly ILogger<StableStationAgentEnrollmentClient> _logger = logger;
+
+  public async Task<bool> CreateDevice(
+    Uri serverUri,
+    CreateDeviceRequestDto request,
+    CancellationToken cancellationToken)
+  {
+    try
+    {
+      using var client = _httpClientFactory.CreateClient();
+      client.BaseAddress = serverUri;
+      using var response = await client.PostAsJsonAsync(
+        HttpConstants.Agent.DevicesEndpoint,
+        request,
+        cancellationToken);
+      if (response.IsSuccessStatusCode)
+      {
+        return true;
+      }
+      _logger.LogWarning(
+        "StableStation Agent enrollment endpoint returned HTTP {StatusCode}.",
+        (int)response.StatusCode);
+      return false;
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+      throw;
+    }
+    catch (Exception ex)
+    {
+      _logger.LogWarning(ex, "StableStation Agent enrollment request failed.");
+      return false;
+    }
+  }
+}
+
 internal class StableStationAgentProvisioner(
   TimeProvider timeProvider,
-  IControlrApi controlrApi,
+  IStableStationAgentEnrollmentClient enrollmentClient,
   IDeviceInfoProvider deviceInfoProvider,
   IEd25519KeyProvider keyProvider,
   IOptionsAccessor optionsAccessor,
@@ -37,7 +87,7 @@ internal class StableStationAgentProvisioner(
 {
   private readonly IOptionsMonitor<AgentAppOptions> _appOptions = appOptions;
   private readonly StableStationAssistanceGateOptions _assistanceGateOptions = assistanceGateOptions.Value;
-  private readonly IControlrApi _controlrApi = controlrApi;
+  private readonly IStableStationAgentEnrollmentClient _enrollmentClient = enrollmentClient;
   private readonly IDeviceInfoProvider _deviceInfoProvider = deviceInfoProvider;
   private readonly IEd25519KeyProvider _keyProvider = keyProvider;
   private readonly ILogger<StableStationAgentProvisioner> _logger = logger;
@@ -83,10 +133,16 @@ internal class StableStationAgentProvisioner(
       {
         return Failed("Agent is already assigned to a different ControlR tenant.");
       }
+      var serverUriChanged = options.ServerUri != command.ServerUri;
+      options.ServerUri = command.ServerUri;
       if (options.TenantId == command.TenantId &&
           options.DeviceId != Guid.Empty &&
           !string.IsNullOrWhiteSpace(options.PrivateKey))
       {
+        if (serverUriChanged)
+        {
+          await _optionsAccessor.UpdateAppOptions(options);
+        }
         _logger.LogInformation(
           "StableStation Agent identity was already provisioned for endpoint {EndpointId} as device {DeviceId}.",
           command.EndpointId,
@@ -126,8 +182,11 @@ internal class StableStationAgentProvisioner(
         command.InstallerKeySecret,
         null,
         publicKeyBase64);
-      var result = await _controlrApi.Agent.Devices.CreateDevice(request);
-      if (!result.IsSuccess)
+      var enrolled = await _enrollmentClient.CreateDevice(
+        command.ServerUri,
+        request,
+        cancellationToken);
+      if (!enrolled)
       {
         if (generatedPrivateKey)
         {
@@ -137,7 +196,7 @@ internal class StableStationAgentProvisioner(
         _logger.LogWarning(
           "StableStation Agent provisioning failed for endpoint {EndpointId}. Reason: {Reason}",
           command.EndpointId,
-          result.Reason);
+          "ControlR rejected the request");
         return Failed("ControlR rejected the one-time Agent enrollment.");
       }
 
@@ -182,6 +241,15 @@ internal class StableStationAgentProvisioner(
         string.IsNullOrWhiteSpace(command.InstallerKeySecret) ||
         command.InstallerKeySecret.Length is < 32 or > 512 ||
         command.InstallerKeySecret.Contains((char)10) ||
+        command.ServerUri is null ||
+        !command.ServerUri.IsAbsoluteUri ||
+        command.ServerUri.Scheme != Uri.UriSchemeHttps ||
+        string.IsNullOrWhiteSpace(command.ServerUri.Host) ||
+        !string.IsNullOrEmpty(command.ServerUri.UserInfo) ||
+        !string.IsNullOrEmpty(command.ServerUri.Query) ||
+        !string.IsNullOrEmpty(command.ServerUri.Fragment) ||
+        command.ServerUri.AbsolutePath != "/" ||
+        !command.ServerUri.IsDefaultPort ||
         string.IsNullOrWhiteSpace(command.Nonce) ||
         command.Nonce.Length is < 16 or > 128 ||
         string.IsNullOrWhiteSpace(command.Signature) ||
@@ -206,6 +274,7 @@ internal class StableStationAgentProvisioner(
       command.TenantId.ToString("D"),
       command.InstallerKeyId.ToString("D"),
       command.InstallerKeySecret,
+      command.ServerUri.GetLeftPart(UriPartial.Authority).TrimEnd('/'),
       command.IssuedAtUnixSeconds.ToString(CultureInfo.InvariantCulture),
       command.Nonce);
     var expected = HMACSHA256.HashData(

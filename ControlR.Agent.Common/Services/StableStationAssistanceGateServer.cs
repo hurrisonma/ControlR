@@ -117,6 +117,10 @@ internal class StableStationAssistanceGateServer(
           await using var stream = client.GetStream();
           using var reader = new StreamReader(stream, Encoding.ASCII, false, 1024, true);
           var requestLine = await reader.ReadLineAsync(requestToken);
+          if (requestLine is null)
+          {
+            return;
+          }
           var isGateRequest = requestLine == "POST /v1/gate HTTP/1.1";
           var isProvisioningRequest = requestLine == "POST /v1/provision HTTP/1.1";
           if (!isGateRequest && !isProvisioningRequest)

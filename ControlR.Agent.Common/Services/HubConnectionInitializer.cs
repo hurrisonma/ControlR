@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
+using ControlR.Agent.Shared.Options;
 using ControlR.Agent.Shared.Services;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace ControlR.Agent.Common.Services;
 
@@ -9,10 +11,10 @@ internal class HubConnectionInitializer(
   TimeProvider timeProvider,
   IHubConnection<IAgentHub> hubConnection,
   IHostApplicationLifetime appLifetime,
-  IOptionsAccessor optionsAccessor,
+  IOptionsMonitor<AgentAppOptions> appOptions,
   IAgentMaintenanceService agentUpdater,
   IAgentHeartbeatTimer agentHeartbeatTimer,
-  ILogger<HubConnectionInitializer> logger) : IHostedService
+  ILogger<HubConnectionInitializer> logger) : BackgroundService
 {
   private readonly IAgentHeartbeatTimer _agentHeartbeatTimer = agentHeartbeatTimer;
   private readonly IAgentMaintenanceService _agentUpdater = agentUpdater;
@@ -21,17 +23,25 @@ internal class HubConnectionInitializer(
   private readonly ILogger<HubConnectionInitializer> _logger = logger;
   private readonly TimeSpan _maxReconnectDelay = TimeSpan.FromSeconds(180);
   private readonly TimeSpan _maxReconnectJitter = TimeSpan.FromSeconds(20);
-  private readonly IOptionsAccessor _optionsAccessor = optionsAccessor;
+  private readonly IOptionsMonitor<AgentAppOptions> _appOptions = appOptions;
   private readonly TimeProvider _timeProvider = timeProvider;
 
-  public async Task StartAsync(CancellationToken cancellationToken)
+  protected override async Task ExecuteAsync(CancellationToken cancellationToken)
   {
     var attempt = 1;
     while (!cancellationToken.IsCancellationRequested)
     {
+      var serverUri = _appOptions.CurrentValue.ServerUri;
+      if (serverUri is null)
+      {
+        await Task
+          .Delay(TimeSpan.FromSeconds(1), _timeProvider, cancellationToken)
+          .IgnoreOperationCanceledException();
+        continue;
+      }
       try
       {
-        if (await Connect(cancellationToken))
+        if (await Connect(serverUri, cancellationToken))
         {
           break;
         }
@@ -56,14 +66,17 @@ internal class HubConnectionInitializer(
     }
   }
 
-  public async Task StopAsync(CancellationToken cancellationToken)
+  public override async Task StopAsync(CancellationToken cancellationToken)
   {
+    await base.StopAsync(cancellationToken);
     await _hubConnection.DisposeAsync();
   }
 
-  private async Task<bool> Connect(CancellationToken cancellationToken)
+  private async Task<bool> Connect(
+    Uri serverUri,
+    CancellationToken cancellationToken)
   {
-    var hubEndpoint = new Uri(_optionsAccessor.ServerUri, AppConstants.AgentHubPath);
+    var hubEndpoint = new Uri(serverUri, AppConstants.AgentHubPath);
 
     var result = await _hubConnection.Connect(
       hubEndpoint,

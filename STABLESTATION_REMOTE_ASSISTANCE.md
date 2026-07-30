@@ -68,6 +68,17 @@ The Agent service stays running, but every Agent start closes the in-memory Gate
 first disables the current Gate/Viewer, then the unified installer stops the service before replacing
 the runtime. Uninstall removes the service, identity, and Gate configuration.
 
+The installer does not embed or accept a StableStation assistance server URI. A Connector-managed
+Agent with no existing identity starts only its loopback Gate and does not attempt an outbound
+ControlR connection. Hub initialization waits in a background service, so this bootstrap state does
+not block the remaining Agent hosted services. StableStation Web derives
+`https://assist.<system-domain>` from the canonical
+`system.jsonc` domain and includes it in `/connector/config.json`. The Connector strictly validates
+that origin against `https://connector.<system-domain>`, persists it as part of the admitted
+connection config, and includes it in the HMAC-signed `/v1/provision` command. Only then does the
+Agent persist the URI, use it for the one-time enrollment request, and initialize its hub
+connection. There is no parallel build-time, installer-time, or Agent environment-variable domain.
+
 ## Publishing
 
 `.github/workflows/publish-stablestation-ghcr.yml` validates the StableStation-specific Server and

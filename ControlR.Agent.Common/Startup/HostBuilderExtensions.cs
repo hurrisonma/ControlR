@@ -108,15 +108,28 @@ internal static class HostApplicationBuilderExtensions
     var appOptions = builder.Configuration
       .GetSection(AgentAppOptions.SectionKey)
       .Get<AgentAppOptions>() ?? new AgentAppOptions();
-
-    services.AddHttpClient<IDownloadsApi, DownloadsApi>(ConfigureHttpClient);
-    services.AddControlrApiClient(options =>
+    var assistanceGateOptions = builder.Configuration
+      .GetSection(StableStationAssistanceGateOptions.SectionKey)
+      .Get<StableStationAssistanceGateOptions>() ?? new StableStationAssistanceGateOptions();
+    var connectorManagedBootstrap =
+      OperatingSystem.IsWindows() &&
+      assistanceGateOptions.Enabled &&
+      assistanceGateOptions.ConnectorOwnsLifecycle;
+    var apiBaseUri = appOptions.ServerUri;
+    if (apiBaseUri is null)
     {
-      if (appOptions.ServerUri is null)
+      if (!connectorManagedBootstrap)
       {
         throw new ArgumentException("ServerUri must be provided in configuration or app settings.");
       }
-      options.BaseUrl = appOptions.ServerUri;
+      apiBaseUri = new Uri("http://127.0.0.1:1");
+    }
+
+    services.AddHttpClient<IDownloadsApi, DownloadsApi>(ConfigureHttpClient);
+    services.AddHttpClient();
+    services.AddControlrApiClient(options =>
+    {
+      options.BaseUrl = apiBaseUri;
     });
 
     builder.Services.AddStarRedactor();
@@ -143,6 +156,7 @@ internal static class HostApplicationBuilderExtensions
     services.AddSingleton<IIpcClientAuthenticator, IpcClientAuthenticator>();
     services.AddSingleton<IAgentHeartbeatTimer, AgentHeartbeatTimer>();
     services.AddSingleton<IStableStationAssistanceGate, StableStationAssistanceGate>();
+    services.AddSingleton<IStableStationAgentEnrollmentClient, StableStationAgentEnrollmentClient>();
     services.AddSingleton<IStableStationAgentProvisioner, StableStationAgentProvisioner>();
     services.AddControlrIpcServer<AgentRpcService>();
     services.AddStronglyTypedSignalrClient<IAgentHub, IAgentHubClient, AgentHubClient>(ServiceLifetime.Singleton);
