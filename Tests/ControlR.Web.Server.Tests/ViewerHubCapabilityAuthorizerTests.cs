@@ -6,6 +6,35 @@ namespace ControlR.Web.Server.Tests;
 
 public class ViewerHubCapabilityAuthorizerTests
 {
+  [Fact]
+  public void InvalidCapability_DeniesRemoteDesktopMethod()
+  {
+    var user = CreateUser("InvalidCapability");
+
+    var isAllowed = ViewerHubCapabilityAuthorizer.IsHubMethodAllowed(
+      user,
+      nameof(ViewerHub.RequestRemoteControlSession));
+
+    Assert.False(isAllowed);
+  }
+
+  [Fact]
+  public void MultipleCapabilities_DenyRemoteDesktopMethod()
+  {
+    var identity = new ClaimsIdentity(
+    [
+      new Claim(UserClaimTypes.SessionCapability, LogonTokenCapability.RemoteDesktop.ToString()),
+      new Claim(UserClaimTypes.SessionCapability, LogonTokenCapability.RemoteDesktop.ToString()),
+    ]);
+    var user = new ClaimsPrincipal(identity);
+
+    var isAllowed = ViewerHubCapabilityAuthorizer.IsHubMethodAllowed(
+      user,
+      nameof(ViewerHub.RequestRemoteControlSession));
+
+    Assert.False(isAllowed);
+  }
+
   [Theory]
   [InlineData(nameof(ViewerHub.DisposeDeviceAccessActivity))]
   [InlineData(nameof(ViewerHub.GetActiveDesktopSessions))]
@@ -37,35 +66,6 @@ public class ViewerHubCapabilityAuthorizerTests
     var user = CreateUser(LogonTokenCapability.RemoteDesktop.ToString());
 
     var isAllowed = ViewerHubCapabilityAuthorizer.IsHubMethodAllowed(user, hubMethodName);
-
-    Assert.False(isAllowed);
-  }
-
-  [Fact]
-  public void InvalidCapability_DeniesRemoteDesktopMethod()
-  {
-    var user = CreateUser("InvalidCapability");
-
-    var isAllowed = ViewerHubCapabilityAuthorizer.IsHubMethodAllowed(
-      user,
-      nameof(ViewerHub.RequestRemoteControlSession));
-
-    Assert.False(isAllowed);
-  }
-
-  [Fact]
-  public void MultipleCapabilities_DenyRemoteDesktopMethod()
-  {
-    var identity = new ClaimsIdentity(
-    [
-      new Claim(UserClaimTypes.SessionCapability, LogonTokenCapability.RemoteDesktop.ToString()),
-      new Claim(UserClaimTypes.SessionCapability, LogonTokenCapability.RemoteDesktop.ToString()),
-    ]);
-    var user = new ClaimsPrincipal(identity);
-
-    var isAllowed = ViewerHubCapabilityAuthorizer.IsHubMethodAllowed(
-      user,
-      nameof(ViewerHub.RequestRemoteControlSession));
 
     Assert.False(isAllowed);
   }

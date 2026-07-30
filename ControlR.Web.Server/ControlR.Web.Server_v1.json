@@ -2028,7 +2028,8 @@
         "required": [
           "deviceId",
           "tenantId",
-          "userCorrelationId"
+          "userCorrelationId",
+          "capability"
         ],
         "type": "object",
         "properties": {
@@ -2044,6 +2045,16 @@
             "maxLength": 252,
             "minLength": 0,
             "type": "string"
+          },
+          "capability": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LogonTokenCapability"
+              }
+            ]
           },
           "userDisplayName": {
             "maxLength": 50,
@@ -2638,6 +2649,12 @@
       },
       "InstallerKeyType": {
         "type": "integer"
+      },
+      "LogonTokenCapability": {
+        "enum": [
+          "RemoteDesktop",
+          null
+        ]
       },
       "LogonTokenResponseDto": {
         "required": [
