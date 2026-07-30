@@ -1,4 +1,5 @@
 using ControlR.Libraries.Api.Contracts.Constants;
+using ControlR.Web.Server.Options;
 using ControlR.Web.Server.Services.Assistance;
 
 namespace ControlR.Web.Server.Middleware;
@@ -19,8 +20,15 @@ public class RemoteDesktopCapabilityHttpGuardMiddleware(RequestDelegate next)
 
   public async Task Invoke(
     HttpContext context,
-    IAssistanceAuthorizationManager authorizationManager)
+    IAssistanceAuthorizationManager authorizationManager,
+    IOptionsMonitor<BootstrapOptions> bootstrapOptions)
   {
+    if (!bootstrapOptions.CurrentValue.StableStationAdapterEnabled)
+    {
+      await _next(context);
+      return;
+    }
+
     var capabilityClaims = context.User.FindAll(UserClaimTypes.SessionCapability).ToArray();
     if (capabilityClaims.Length == 0)
     {

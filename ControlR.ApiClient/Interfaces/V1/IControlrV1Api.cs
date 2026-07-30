@@ -7,5 +7,6 @@ public interface IControlrV1Api
   IInstallerKeysApi InstallerKeys { get; }
   ILogonTokensApi LogonTokens { get; }
   IServiceAccountsApi ServiceAccounts { get; }
+  IStableStationAgentEnrollmentsApi StableStationAgentEnrollments { get; }
   ITenantsApi Tenants { get; }
 }

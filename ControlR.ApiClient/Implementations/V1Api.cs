@@ -9,6 +9,7 @@ internal partial class V1Api(ControlrApi client) :
   IInstallerKeysApi,
   ILogonTokensApi,
   IServiceAccountsApi,
+  IStableStationAgentEnrollmentsApi,
   ITenantsApi
 {
   private readonly ControlrApi _client = client;
@@ -18,5 +19,6 @@ internal partial class V1Api(ControlrApi client) :
   public IInstallerKeysApi InstallerKeys => this;
   public ILogonTokensApi LogonTokens => this;
   public IServiceAccountsApi ServiceAccounts => this;
+  public IStableStationAgentEnrollmentsApi StableStationAgentEnrollments => this;
   public ITenantsApi Tenants => this;
 }
