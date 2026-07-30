@@ -149,6 +149,7 @@ public class ServiceAccountEndToEndTests(ITestOutputHelper testOutput)
       DeviceId: deviceId,
       TenantId: tenantResult.TenantId,
       UserCorrelationId: "e2e-integration-service",
+      Capability: LogonTokenCapability.RemoteDesktop,
       ExpirationMinutes: 15);
 
     var tokenResponse = await saClient.PostAsJsonAsync(

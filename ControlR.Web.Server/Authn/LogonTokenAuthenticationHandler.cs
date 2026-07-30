@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using ControlR.Web.Server.Data.Enums;
 using Microsoft.AspNetCore.Authentication;
 using ControlR.Web.Server.Services.LogonTokens;
 
@@ -52,6 +53,11 @@ public class LogonTokenAuthenticationHandler(
       return AuthenticateResult.Fail("User not found for logon token.");
     }
 
+    if (user.AccountType == AccountType.ExternalUser && tokenValidation.Capability is null)
+    {
+      return AuthenticateResult.Fail("External logon token capability is required.");
+    }
+
     var claims = new List<Claim>
     {
       new(UserClaimTypes.UserId, user.Id.ToString()),
@@ -61,6 +67,11 @@ public class LogonTokenAuthenticationHandler(
       new(UserClaimTypes.AuthenticationMethod, LogonTokenAuthenticationSchemeOptions.DefaultScheme),
       new(UserClaimTypes.DeviceSessionScope, deviceId.ToString()),
     };
+
+    if (tokenValidation.Capability.HasValue)
+    {
+      claims.Add(new(UserClaimTypes.SessionCapability, tokenValidation.Capability.Value.ToString()));
+    }
 
     if (!string.IsNullOrWhiteSpace(tokenValidation.SessionCorrelationId))
     {

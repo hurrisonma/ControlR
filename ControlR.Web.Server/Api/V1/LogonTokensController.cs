@@ -26,10 +26,16 @@ public class LogonTokensController : ControllerBase
       return BadRequest("Device not found");
     }
 
+    if (request.Capability is not LogonTokenCapability.RemoteDesktop)
+    {
+      return BadRequest("RemoteDesktop capability is required for external logon tokens.");
+    }
+
     var result = await logonTokenProvider.CreateTokenForExternal(
       request.DeviceId,
       request.TenantId,
       request.UserCorrelationId,
+      request.Capability.Value,
       request.ExpirationMinutes,
       userDisplayName: request.UserDisplayName,
       sessionCorrelationId: request.SessionCorrelationId);

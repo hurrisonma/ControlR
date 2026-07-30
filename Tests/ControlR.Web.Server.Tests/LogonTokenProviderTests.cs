@@ -21,15 +21,29 @@ public class LogonTokenProviderTests(ITestOutputHelper testOutput)
     var tenant = await testApp.App.Services.CreateTestTenant();
     var userCorrelationId = $"test-{Guid.NewGuid():N}";
 
-    var result = await logonTokenProvider.CreateTokenForExternal(deviceId, tenant.Id, userCorrelationId, cancellationToken: TestContext.Current.CancellationToken);
+    var result = await logonTokenProvider.CreateTokenForExternal(
+      deviceId,
+      tenant.Id,
+      userCorrelationId,
+      LogonTokenCapability.RemoteDesktop,
+      cancellationToken: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.NotNull(result.Value);
     Assert.NotEmpty(result.Value.Token);
     Assert.Equal(deviceId, result.Value.DeviceId);
     Assert.Equal(tenant.Id, result.Value.TenantId);
+    Assert.Equal(LogonTokenCapability.RemoteDesktop, result.Value.Capability);
     Assert.True(result.Value.ExpiresAt > DateTimeOffset.UtcNow);
     Assert.False(result.Value.IsConsumed);
+
+    var validationResult = await logonTokenProvider.ValidateAndConsumeToken(
+      result.Value.Token,
+      deviceId,
+      TestContext.Current.CancellationToken);
+
+    Assert.True(validationResult.IsValid);
+    Assert.Equal(LogonTokenCapability.RemoteDesktop, validationResult.Capability);
   }
 
   [Fact]
@@ -47,6 +61,7 @@ public class LogonTokenProviderTests(ITestOutputHelper testOutput)
 
     var createResult = await logonTokenProvider.CreateTokenForExternal(
       deviceId, tenant.Id, userCorrelationId,
+      LogonTokenCapability.RemoteDesktop,
       userDisplayName: userDisplayName,
       cancellationToken: TestContext.Current.CancellationToken);
 
@@ -259,4 +274,3 @@ public class LogonTokenProviderTests(ITestOutputHelper testOutput)
     Assert.Equal(tenant.Id, validateResult.Value.TenantId);
   }
 }
-

@@ -4,6 +4,7 @@ namespace ControlR.Web.Server.Services.LogonTokens;
 
 public class LogonTokenValidationResult
 {
+  public LogonTokenCapability? Capability { get; set; }
   public string? ErrorMessage { get; set; }
   [MemberNotNullWhen(true, nameof(UserId), nameof(TenantId))]
   public bool IsValid { get; set; }
@@ -24,10 +25,12 @@ public class LogonTokenValidationResult
   public static LogonTokenValidationResult Success(
     Guid userId,
     Guid tenantId,
-    string? sessionCorrelationId = null)
+    string? sessionCorrelationId = null,
+    LogonTokenCapability? capability = null)
   {
     return new LogonTokenValidationResult
     {
+      Capability = capability,
       IsValid = true,
       UserId = userId,
       TenantId = tenantId,
