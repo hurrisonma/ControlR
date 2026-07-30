@@ -4,6 +4,7 @@ namespace ControlR.ApiClient;
 
 internal partial class V1Api(ControlrApi client) :
   IControlrV1Api,
+  IAssistanceAuthorizationsApi,
   IDevicesApi,
   IInstallerKeysApi,
   ILogonTokensApi,
@@ -12,6 +13,7 @@ internal partial class V1Api(ControlrApi client) :
 {
   private readonly ControlrApi _client = client;
 
+  public IAssistanceAuthorizationsApi AssistanceAuthorizations => this;
   public IDevicesApi Devices => this;
   public IInstallerKeysApi InstallerKeys => this;
   public ILogonTokensApi LogonTokens => this;

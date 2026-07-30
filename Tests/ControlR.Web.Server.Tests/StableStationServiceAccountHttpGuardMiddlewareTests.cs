@@ -53,13 +53,75 @@ public class StableStationServiceAccountHttpGuardMiddlewareTests
     var options = new Mock<IOptionsMonitor<BootstrapOptions>>();
     options.SetupGet(x => x.CurrentValue).Returns(new BootstrapOptions
     {
-      ServerServiceAccountId = stableStationServiceAccountId
+      ServerServiceAccountId = stableStationServiceAccountId,
+      StableStationAdapterEnabled = true
     });
 
     await middleware.Invoke(context, options.Object);
 
     Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
     Assert.False(nextCalled);
+  }
+
+  [Fact]
+  public async Task Invoke_StableStationServiceAccountOnGeneralRoute_ReturnsForbidden()
+  {
+    var serviceAccountId = Guid.NewGuid();
+    var nextCalled = false;
+    var middleware = new StableStationServiceAccountHttpGuardMiddleware(_ =>
+    {
+      nextCalled = true;
+      return Task.CompletedTask;
+    });
+    var context = new DefaultHttpContext();
+    using var services = new ServiceCollection().BuildServiceProvider();
+    context.RequestServices = services;
+    context.Request.Method = HttpMethods.Post;
+    context.Request.Path = "/api/v1/tenants";
+    context.User = new ClaimsPrincipal(new ClaimsIdentity([
+      new Claim(PrincipalClaimTypes.PrincipalId, serviceAccountId.ToString()),
+      new Claim(PrincipalClaimTypes.PrincipalType, PrincipalClaimTypes.ServerServiceAccount)
+    ], "test"));
+    var options = new Mock<IOptionsMonitor<BootstrapOptions>>();
+    options.SetupGet(x => x.CurrentValue).Returns(new BootstrapOptions
+    {
+      ServerServiceAccountId = serviceAccountId,
+      StableStationAdapterEnabled = true
+    });
+
+    await middleware.Invoke(context, options.Object);
+
+    Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+    Assert.False(nextCalled);
+  }
+
+  [Fact]
+  public async Task Invoke_StandardBootstrapServiceAccountOnGeneralRoute_CallsNext()
+  {
+    var serviceAccountId = Guid.NewGuid();
+    var nextCalled = false;
+    var middleware = new StableStationServiceAccountHttpGuardMiddleware(_ =>
+    {
+      nextCalled = true;
+      return Task.CompletedTask;
+    });
+    var context = new DefaultHttpContext();
+    context.Request.Method = HttpMethods.Post;
+    context.Request.Path = "/api/v1/tenants";
+    context.User = new ClaimsPrincipal(new ClaimsIdentity([
+      new Claim(PrincipalClaimTypes.PrincipalId, serviceAccountId.ToString()),
+      new Claim(PrincipalClaimTypes.PrincipalType, PrincipalClaimTypes.ServerServiceAccount)
+    ], "test"));
+    var options = new Mock<IOptionsMonitor<BootstrapOptions>>();
+    options.SetupGet(x => x.CurrentValue).Returns(new BootstrapOptions
+    {
+      ServerServiceAccountId = serviceAccountId,
+      StableStationAdapterEnabled = false
+    });
+
+    await middleware.Invoke(context, options.Object);
+
+    Assert.True(nextCalled);
   }
 
   [Theory]

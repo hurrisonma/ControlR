@@ -11,9 +11,10 @@ public class StableStationServiceAccountHttpGuardMiddleware(RequestDelegate next
     HttpContext context,
     IOptionsMonitor<BootstrapOptions> bootstrapOptions)
   {
+    var options = bootstrapOptions.CurrentValue;
     var isStableStationServiceAccount = IsStableStationServiceAccount(
       context.User,
-      bootstrapOptions.CurrentValue.ServerServiceAccountId);
+      options.ServerServiceAccountId) && options.StableStationAdapterEnabled;
     var path = context.Request.Path.Value ?? string.Empty;
     if (IsStableStationExclusivePath(path) && !isStableStationServiceAccount)
     {

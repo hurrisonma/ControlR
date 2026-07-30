@@ -45,6 +45,12 @@ public class BootstrapOptions
   public string? ServerServiceAccountDescription { get; init; }
 
   /// <summary>
+  /// Restricts the configured bootstrap server service account to the StableStation adapter routes.
+  /// Other ControlR deployments and server service accounts retain the standard V1 API behavior.
+  /// </summary>
+  public bool StableStationAdapterEnabled { get; init; }
+
+  /// <summary>
   /// Pre-assigned deterministic GUID for the bootstrap server-scoped service account entity.
   /// When set, the <see cref="ServiceAccount"/> row is created with this ID instead of a
   /// random UUID. This lets automation consumers embed the account ID in config alongside
