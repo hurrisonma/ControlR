@@ -1758,6 +1758,83 @@
         ]
       }
     },
+    "/api/v1/stablestation/agent-enrollments": {
+      "post": {
+        "tags": [
+          "StableStationAgentEnrollments"
+        ],
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "description": "The requested API version",
+            "schema": {
+              "enum": [
+                "1.0"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStableStationAgentEnrollmentRequestDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStableStationAgentEnrollmentRequestDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStableStationAgentEnrollmentRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateStableStationAgentEnrollmentResponseDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateStableStationAgentEnrollmentResponseDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateStableStationAgentEnrollmentResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceAccountCredential": [ ]
+          }
+        ]
+      }
+    },
     "/api/v1/tenants": {
       "post": {
         "tags": [
@@ -2546,6 +2623,43 @@
           }
         }
       },
+      "CreateStableStationAgentEnrollmentRequestDto": {
+        "required": [
+          "endpointId"
+        ],
+        "type": "object",
+        "properties": {
+          "endpointId": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateStableStationAgentEnrollmentResponseDto": {
+        "required": [
+          "tenantId",
+          "installerKeyId",
+          "installerKeySecret",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installerKeyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installerKeySecret": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "CreateTenantRequestDto": {
         "required": [
           "name"
@@ -3233,6 +3347,9 @@
     },
     {
       "name": "ServiceAccounts"
+    },
+    {
+      "name": "StableStationAgentEnrollments"
     },
     {
       "name": "Tenants"
