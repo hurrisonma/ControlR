@@ -61,6 +61,13 @@ jobs:
         with:
           fetch-depth: 1
           submodules: recursive
+          # Upstream contains a historical release-note filename with `?`, which
+          # cannot be materialized by the Windows filesystem and is not needed
+          # to build the client binaries.
+          sparse-checkout: |
+            /*
+            !/.release-notes/
+          sparse-checkout-cone-mode: false
 
       - name: Set up .NET
         uses: ./.github/actions/setup-dotnet
