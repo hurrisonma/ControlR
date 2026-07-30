@@ -6,6 +6,196 @@
     "version": "v1"
   },
   "paths": {
+    "/api/v1/assistance-authorizations": {
+      "post": {
+        "tags": [
+          "AssistanceAuthorizations"
+        ],
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "description": "The requested API version",
+            "schema": {
+              "enum": [
+                "1.0"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistanceAuthorizationRequestDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistanceAuthorizationRequestDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistanceAuthorizationRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateAssistanceAuthorizationResponseDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateAssistanceAuthorizationResponseDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateAssistanceAuthorizationResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceAccountCredential": [ ]
+          }
+        ]
+      }
+    },
+    "/api/v1/assistance-authorizations/{authorizationId}": {
+      "get": {
+        "tags": [
+          "AssistanceAuthorizations"
+        ],
+        "parameters": [
+          {
+            "name": "authorizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "description": "The requested API version",
+            "schema": {
+              "enum": [
+                "1.0"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistanceAuthorizationDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistanceAuthorizationDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistanceAuthorizationDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceAccountCredential": [ ]
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "AssistanceAuthorizations"
+        ],
+        "parameters": [
+          {
+            "name": "authorizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "description": "The requested API version",
+            "schema": {
+              "enum": [
+                "1.0"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceAccountCredential": [ ]
+          }
+        ]
+      }
+    },
     "/api/v1/devices/{deviceId}": {
       "delete": {
         "tags": [
@@ -1927,6 +2117,177 @@
       "Architecture": {
         "type": "integer"
       },
+      "AssistanceAuthorizationDto": {
+        "required": [
+          "authorizationId",
+          "deviceId",
+          "tenantId",
+          "endpointId",
+          "connectorSessionId",
+          "connectorInstanceId",
+          "enableGeneration",
+          "userCorrelationId",
+          "userDisplayName",
+          "sessionCorrelationId",
+          "capability",
+          "status",
+          "createdAt",
+          "expiresAt",
+          "connectedAt",
+          "closedAt",
+          "closeReason"
+        ],
+        "type": "object",
+        "properties": {
+          "authorizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "endpointId": {
+            "type": "string"
+          },
+          "connectorSessionId": {
+            "type": "string"
+          },
+          "connectorInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "enableGeneration": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": "integer",
+            "format": "int64"
+          },
+          "userCorrelationId": {
+            "type": "string"
+          },
+          "userDisplayName": {
+            "type": "string"
+          },
+          "sessionCorrelationId": {
+            "type": "string"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/LogonTokenCapability"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssistanceAuthorizationStatus"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "connectedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "closedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "closeReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AssistanceAuthorizationStatus": {
+        "type": "integer"
+      },
+      "CreateAssistanceAuthorizationRequestDto": {
+        "required": [
+          "deviceId",
+          "tenantId",
+          "endpointId",
+          "connectorSessionId",
+          "connectorInstanceId",
+          "enableGeneration",
+          "userCorrelationId",
+          "userDisplayName",
+          "sessionCorrelationId",
+          "expirationMinutes"
+        ],
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "endpointId": {
+            "type": "string"
+          },
+          "connectorSessionId": {
+            "type": "string"
+          },
+          "connectorInstanceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "enableGeneration": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": "integer",
+            "format": "int64"
+          },
+          "userCorrelationId": {
+            "type": "string"
+          },
+          "userDisplayName": {
+            "type": "string"
+          },
+          "sessionCorrelationId": {
+            "type": "string"
+          },
+          "expirationMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CreateAssistanceAuthorizationResponseDto": {
+        "required": [
+          "authorization",
+          "deviceAccessUrl",
+          "tokenExpiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "authorization": {
+            "$ref": "#/components/schemas/AssistanceAuthorizationDto"
+          },
+          "deviceAccessUrl": {
+            "type": "string"
+          },
+          "tokenExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "CreateInstallerKeyRequestDto": {
         "required": [
           "tenantId",
@@ -2652,8 +3013,7 @@
       },
       "LogonTokenCapability": {
         "enum": [
-          "RemoteDesktop",
-          null
+          "RemoteDesktop"
         ]
       },
       "LogonTokenResponseDto": {
@@ -2859,6 +3219,9 @@
     }
   },
   "tags": [
+    {
+      "name": "AssistanceAuthorizations"
+    },
     {
       "name": "Devices"
     },

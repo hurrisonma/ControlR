@@ -10,6 +10,7 @@ using ControlR.Libraries.WebSocketRelay.Common.Extensions;
 using ControlR.Web.Server.Services.Users;
 using ControlR.Web.Server.Services.Tenants;
 using ControlR.Web.Server.Services.LogonTokens;
+using ControlR.Web.Server.Services.Assistance;
 using ControlR.Web.Client.Services;
 using Microsoft.AspNetCore.Http.Features;
 using ControlR.Web.Server.Services.AgentInstaller;
@@ -232,6 +233,7 @@ public static class WebApplicationBuilderExtensions
       options.RequireAuthenticationForRequester = true;
     });
     builder.Services.AddSingleton<ILogonTokenProvider, LogonTokenProvider>();
+    builder.Services.AddSingleton<AssistanceViewerConnectionRegistry>();
     builder.Services.AddSingleton<AgentInstallerKeyUsageCleanupBackgroundService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<AgentInstallerKeyUsageCleanupBackgroundService>());
     builder.Services.AddSingleton<ExternalUserCleanupBackgroundService>();
@@ -252,6 +254,8 @@ public static class WebApplicationBuilderExtensions
     builder.Services.AddScoped<IPublicServerSettingsProvider, PublicServerSettingsProviderServer>();
     builder.Services.AddScoped<ITenantInvitesProvider, TenantInvitesProvider>();
     builder.Services.AddScoped<IServiceAccountManager, ServiceAccountManager>();
+    builder.Services.AddScoped<IAssistanceAuthorizationManager, AssistanceAuthorizationManager>();
+    builder.Services.AddHostedService<AssistanceAuthorizationExpirationService>();
 
     return builder;
   }

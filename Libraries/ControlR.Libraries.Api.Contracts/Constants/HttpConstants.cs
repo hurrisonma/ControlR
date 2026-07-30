@@ -40,6 +40,7 @@ public static class HttpConstants
   }
   public static class V1
   {
+    public const string AssistanceAuthorizationsEndpoint = "/api/v1/assistance-authorizations";
     public const string DevicesEndpoint = "/api/v1/devices";
     public const string InstallerKeysEndpoint = "/api/v1/installer-keys";
     public const string LogonTokensEndpoint = "/api/v1/logon-tokens";

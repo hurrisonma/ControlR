@@ -26,6 +26,7 @@ using ControlR.Libraries.DataRedaction;
 using ControlR.Libraries.Hosting;
 using ControlR.Libraries.Serilog;
 using ControlR.Libraries.Shared.Services.FileSystem;
+using ControlR.Agent.Common.Configuration;
 
 namespace ControlR.Agent.Common.Startup;
 
@@ -76,6 +77,10 @@ internal static class HostApplicationBuilderExtensions
       .AddOptions<InstanceOptions>()
       .Bind(configuration.GetSection(InstanceOptions.SectionKey));
 
+    services
+      .AddOptions<StableStationAssistanceGateOptions>()
+      .Bind(configuration.GetSection(StableStationAssistanceGateOptions.SectionKey));
+
     var pathProvider = GetTempPathProvider(builder);
 
     if (loadAppSettings)
@@ -120,6 +125,7 @@ internal static class HostApplicationBuilderExtensions
     services.AddSingleton<IIpcServerStore, IpcServerStore>();
     services.AddSingleton<IIpcClientAuthenticator, IpcClientAuthenticator>();
     services.AddSingleton<IAgentHeartbeatTimer, AgentHeartbeatTimer>();
+    services.AddSingleton<IStableStationAssistanceGate, StableStationAssistanceGate>();
     services.AddControlrIpcServer<AgentRpcService>();
     services.AddStronglyTypedSignalrClient<IAgentHub, IAgentHubClient, AgentHubClient>(ServiceLifetime.Singleton);
 
@@ -171,6 +177,8 @@ internal static class HostApplicationBuilderExtensions
       services.AddHostedService<HostLifetimeEventResponder>();
       services.AddHostedService(s => s.GetRequiredService<ICpuUtilizationSampler>());
       services.AddHostedService<FilePermissionsEnforcer>();
+      services.AddHostedService<StableStationAssistanceGateServer>();
+      services.AddHostedService<StableStationAssistanceGateSessionTerminator>();
 
       if (OperatingSystem.IsWindowsVersionAtLeast(8))
       {

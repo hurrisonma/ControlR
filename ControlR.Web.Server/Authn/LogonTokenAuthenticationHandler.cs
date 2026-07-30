@@ -73,6 +73,27 @@ public class LogonTokenAuthenticationHandler(
       claims.Add(new(UserClaimTypes.SessionCapability, tokenValidation.Capability.Value.ToString()));
     }
 
+    if (tokenValidation.AssistanceAuthorizationId.HasValue)
+    {
+      claims.Add(new(
+        UserClaimTypes.AssistanceAuthorizationId,
+        tokenValidation.AssistanceAuthorizationId.Value.ToString()));
+    }
+
+    if (tokenValidation.AssistanceConnectorInstanceId.HasValue)
+    {
+      claims.Add(new(
+        UserClaimTypes.AssistanceConnectorInstanceId,
+        tokenValidation.AssistanceConnectorInstanceId.Value.ToString()));
+    }
+
+    if (tokenValidation.AssistanceEnableGeneration.HasValue)
+    {
+      claims.Add(new(
+        UserClaimTypes.AssistanceEnableGeneration,
+        tokenValidation.AssistanceEnableGeneration.Value.ToString()));
+    }
+
     if (!string.IsNullOrWhiteSpace(tokenValidation.SessionCorrelationId))
     {
       claims.Add(new(UserClaimTypes.SessionCorrelationId, tokenValidation.SessionCorrelationId));

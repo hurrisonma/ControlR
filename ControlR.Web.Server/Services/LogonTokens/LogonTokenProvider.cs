@@ -27,6 +27,9 @@ public interface ILogonTokenProvider
     int expirationMinutes = 5,
     string? userDisplayName = null,
     string? sessionCorrelationId = null,
+    Guid? assistanceAuthorizationId = null,
+    Guid? assistanceConnectorInstanceId = null,
+    long? assistanceEnableGeneration = null,
     CancellationToken cancellationToken = default);
 
   Task<LogonTokenValidationResult> ValidateAndConsumeToken(string token, Guid deviceId, CancellationToken cancellationToken = default);
@@ -101,6 +104,9 @@ public class LogonTokenProvider(
     int expirationMinutes = 5,
     string? userDisplayName = null,
     string? sessionCorrelationId = null,
+    Guid? assistanceAuthorizationId = null,
+    Guid? assistanceConnectorInstanceId = null,
+    long? assistanceEnableGeneration = null,
     CancellationToken cancellationToken = default)
   {
     using var scope = _scopeFactory.CreateScope();
@@ -154,7 +160,7 @@ public class LogonTokenProvider(
       }
     }
 
-    return await CreateToken(
+    var tokenResult = await CreateToken(
       deviceId,
       tenantId,
       guestUser.Id,
@@ -163,6 +169,15 @@ public class LogonTokenProvider(
       sessionCorrelationId,
       capability,
       cancellationToken);
+
+    if (tokenResult.IsSuccess)
+    {
+      tokenResult.Value.AssistanceAuthorizationId = assistanceAuthorizationId;
+      tokenResult.Value.AssistanceConnectorInstanceId = assistanceConnectorInstanceId;
+      tokenResult.Value.AssistanceEnableGeneration = assistanceEnableGeneration;
+    }
+
+    return tokenResult;
   }
 
   public async Task<LogonTokenValidationResult> ValidateAndConsumeToken(string token, Guid deviceId, CancellationToken cancellationToken = default)
@@ -203,7 +218,10 @@ public class LogonTokenProvider(
       userId.Value,
       logonToken.TenantId,
       logonToken.SessionCorrelationId,
-      logonToken.Capability);
+      logonToken.Capability,
+      logonToken.AssistanceAuthorizationId,
+      logonToken.AssistanceConnectorInstanceId,
+      logonToken.AssistanceEnableGeneration);
   }
 
   public async Task<Result<LogonTokenValidationResult>> ValidateToken(string token, CancellationToken cancellationToken = default)
@@ -233,7 +251,10 @@ public class LogonTokenProvider(
         userId.Value,
         logonToken.TenantId,
         logonToken.SessionCorrelationId,
-        logonToken.Capability);
+        logonToken.Capability,
+        logonToken.AssistanceAuthorizationId,
+        logonToken.AssistanceConnectorInstanceId,
+        logonToken.AssistanceEnableGeneration);
       return Result.Ok(result);
     }
     catch (Exception ex)

@@ -74,7 +74,7 @@ jobs:
           tags: ${{ env.ImageRepository }}:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.title=StableStation ControlR Server
-            org.opencontainers.image.description=Prototype-only StableStation ControlR server image
+            org.opencontainers.image.description=StableStation isolated remote assistance server image
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
@@ -104,5 +104,5 @@ jobs:
             echo "- Deploy as: \`${ImageRepository}@${ImageDigest}\`"
             echo "- Source commit: \`${GITHUB_SHA}\`"
             echo
-            echo "This image is for the isolated prototype. It does not lift the remaining RemoteDesktopOnly, Local Gate, generation fencing, or revoke/disconnect blockers."
+            echo "This image contains the StableStation RemoteDesktopOnly authorization, generation fencing, and revoke/disconnect enforcement."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -390,6 +390,21 @@ public class ViewerHub(
 
       sessionRequestDto = sessionRequestDto with
       {
+        AssistanceAuthorizationId = Guid.TryParse(
+          Context.User?.FindFirstValue(UserClaimTypes.AssistanceAuthorizationId),
+          out var assistanceAuthorizationId)
+          ? assistanceAuthorizationId
+          : null,
+        AssistanceConnectorInstanceId = Guid.TryParse(
+          Context.User?.FindFirstValue(UserClaimTypes.AssistanceConnectorInstanceId),
+          out var assistanceConnectorInstanceId)
+          ? assistanceConnectorInstanceId
+          : null,
+        AssistanceEnableGeneration = long.TryParse(
+          Context.User?.FindFirstValue(UserClaimTypes.AssistanceEnableGeneration),
+          out var assistanceEnableGeneration)
+          ? assistanceEnableGeneration
+          : null,
         NotifyUserOnSessionStart = notifyUser,
         ViewerName = displayName,
         ViewerConnectionId = Context.ConnectionId

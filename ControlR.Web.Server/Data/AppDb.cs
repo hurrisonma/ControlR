@@ -30,6 +30,7 @@ public class AppDb : IdentityDbContext<AppUser, AppRole, Guid>, IDataProtectionK
 
   public DbSet<AgentInstallerKey> AgentInstallerKeys { get; init; }
   public DbSet<AgentInstallerKeyUsage> AgentInstallerKeyUsages { get; init; }
+  public DbSet<AssistanceAuthorization> AssistanceAuthorizations { get; init; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
   public DbSet<Device> Devices { get; init; }
   public DbSet<PersonalAccessToken> PersonalAccessTokens { get; init; }
@@ -69,6 +70,7 @@ public class AppDb : IdentityDbContext<AppUser, AppRole, Guid>, IDataProtectionK
     ConfigureTenantInvites(builder);
     ConfigureAgentInstallerKeys(builder);
     ConfigureAgentInstallerKeyUsages(builder);
+    ConfigureAssistanceAuthorizations(builder);
     ConfigureServiceAccounts(builder);
   }
 
@@ -136,6 +138,42 @@ public class AppDb : IdentityDbContext<AppUser, AppRole, Guid>, IDataProtectionK
     {
       builder
         .Entity<AgentInstallerKeyUsage>()
+        .HasQueryFilter(x => x.TenantId == _tenantId);
+    }
+  }
+
+  private void ConfigureAssistanceAuthorizations(ModelBuilder builder)
+  {
+    builder.Entity<AssistanceAuthorization>()
+      .Property(x => x.Capability)
+      .HasConversion<string>()
+      .HasMaxLength(50);
+
+    builder.Entity<AssistanceAuthorization>()
+      .Property(x => x.Status)
+      .HasConversion<string>()
+      .HasMaxLength(50);
+
+    builder.Entity<AssistanceAuthorization>()
+      .HasIndex(x => new { x.EndpointId, x.Status });
+
+    builder.Entity<AssistanceAuthorization>()
+      .HasIndex(x => x.EndpointId)
+      .IsUnique()
+      .HasFilter("\"Status\" IN ('Pending', 'Connected')");
+
+    builder.Entity<AssistanceAuthorization>()
+      .HasIndex(x => new { x.DeviceId, x.ConnectorInstanceId, x.EnableGeneration });
+
+    builder.Entity<AssistanceAuthorization>()
+      .HasOne<Device>()
+      .WithMany()
+      .HasForeignKey(x => x.DeviceId)
+      .OnDelete(DeleteBehavior.Cascade);
+
+    if (_tenantId is not null)
+    {
+      builder.Entity<AssistanceAuthorization>()
         .HasQueryFilter(x => x.TenantId == _tenantId);
     }
   }

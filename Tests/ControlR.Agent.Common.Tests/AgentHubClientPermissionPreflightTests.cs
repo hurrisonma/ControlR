@@ -109,6 +109,10 @@ public class AgentHubClientPermissionPreflightTests
   {
     var systemEnvironment = new Mock<ISystemEnvironment>();
     systemEnvironment.SetupGet(x => x.IsDebug).Returns(true);
+    var gate = new Mock<IStableStationAssistanceGate>();
+    var gateReason = string.Empty;
+    gate.Setup(x => x.IsAllowed(It.IsAny<RemoteControlSessionRequestDto>(), out gateReason))
+      .Returns(true);
 
     return new AgentHubClient(
       Mock.Of<IHubConnection<IAgentHub>>(),
@@ -131,6 +135,7 @@ public class AgentHubClientPermissionPreflightTests
       Mock.Of<IAgentMaintenanceService>(),
       Mock.Of<IWakeOnLanService>(),
       Mock.Of<IAgentHeartbeatTimer>(),
+      gate.Object,
       Mock.Of<IRetryer>(),
       Mock.Of<ILogger<AgentHubClient>>());
   }

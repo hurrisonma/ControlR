@@ -42,6 +42,7 @@ internal class AgentHubClient(
   IAgentMaintenanceService agentUpdater,
   IWakeOnLanService wakeOnLan,
   IAgentHeartbeatTimer heartbeatTimer,
+  IStableStationAssistanceGate stableStationAssistanceGate,
   IRetryer retryer,
   ILogger<AgentHubClient> logger) : IAgentHubClient
 {
@@ -64,6 +65,7 @@ internal class AgentHubClient(
   private readonly IPowerControl _powerControl = powerControl;
   private readonly IProcessManager _processManager = processManager;
   private readonly IRetryer _retryer = retryer;
+  private readonly IStableStationAssistanceGate _stableStationAssistanceGate = stableStationAssistanceGate;
   private readonly ISystemEnvironment _systemEnvironment = systemEnvironment;
   private readonly ITerminalStore _terminalStore = terminalStore;
   private readonly IWakeOnLanService _wakeOnLan = wakeOnLan;
@@ -145,6 +147,14 @@ internal class AgentHubClient(
   {
     try
     {
+      if (!_stableStationAssistanceGate.IsAllowed(dto, out var gateReason))
+      {
+        _logger.LogWarning(
+          "Remote control session rejected by the StableStation local gate. Reason: {Reason}",
+          gateReason);
+        return HubResult.Fail(gateReason);
+      }
+
       var installationVerificationResult = VerifyDesktopClientInstallation();
       if (!installationVerificationResult.IsSuccess)
       {
@@ -193,7 +203,10 @@ internal class AgentHubClient(
         dto.NotifyUserOnSessionStart,
         dto.RequireConsent,
         dto.ViewerConnectionId,
-        dto.ViewerName);
+        dto.ViewerName,
+        dto.AssistanceAuthorizationId,
+        dto.AssistanceConnectorInstanceId,
+        dto.AssistanceEnableGeneration);
 
       var result = await ipcServer.Server.Client.ReceiveRemoteControlRequest(ipcDto);
       _logger.LogInformation(

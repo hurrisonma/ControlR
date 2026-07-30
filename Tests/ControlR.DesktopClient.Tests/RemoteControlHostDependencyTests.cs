@@ -38,7 +38,10 @@ public class RemoteControlHostDependencyTests
       DeviceId: Guid.NewGuid(),
       NotifyUserOnSessionStart: false,
       RequireConsent: false,
-      ViewerName: "Test Viewer");
+      ViewerName: "Test Viewer",
+      AssistanceAuthorizationId: null,
+      AssistanceConnectorInstanceId: null,
+      AssistanceEnableGeneration: null);
 
     Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", environment);
 
