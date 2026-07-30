@@ -151,7 +151,7 @@ jobs:
           name: stablestation-controlr-win-x64-${{ github.sha }}
           path: ${{ runner.temp }}\downloads\
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 1
 
   validate:
     name: Build and test StableStation extensions
@@ -367,3 +367,37 @@ jobs:
             echo "- Assets: \`ControlR.Agent.bundle.zip\`, \`stablestation-runtime-manifest.json\`, \`SHA256SUMS.txt\`"
             echo "- Standalone installer: \`false\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup-runtime-artifact:
+    name: Delete temporary Windows runtime artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [build-windows-client, publish-runtime-release]
+    if: ${{ always() && needs.build-windows-client.result == 'success' }}
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Delete exact workflow handoff artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ArtifactName: stablestation-controlr-win-x64-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ArtifactIds="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+              --jq ".artifacts[] | select(.name == \"$ArtifactName\") | .id"
+          )"
+          if [[ -z "$ArtifactIds" ]]; then
+            echo "Temporary runtime artifact was already absent."
+            exit 0
+          fi
+
+          for ArtifactId in $ArtifactIds; do
+            gh api --method DELETE \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ArtifactId}"
+          done
+          echo "Deleted temporary workflow artifact: $ArtifactName"
