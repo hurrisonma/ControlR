@@ -11,7 +11,17 @@ public class StableStationServiceAccountHttpGuardMiddleware(RequestDelegate next
     HttpContext context,
     IOptionsMonitor<BootstrapOptions> bootstrapOptions)
   {
-    if (!IsStableStationServiceAccount(context.User, bootstrapOptions.CurrentValue.ServerServiceAccountId))
+    var isStableStationServiceAccount = IsStableStationServiceAccount(
+      context.User,
+      bootstrapOptions.CurrentValue.ServerServiceAccountId);
+    var path = context.Request.Path.Value ?? string.Empty;
+    if (IsStableStationExclusivePath(path) && !isStableStationServiceAccount)
+    {
+      await WriteForbidden(context);
+      return;
+    }
+
+    if (!isStableStationServiceAccount)
     {
       await _next(context);
       return;
@@ -23,11 +33,22 @@ public class StableStationServiceAccountHttpGuardMiddleware(RequestDelegate next
       return;
     }
 
-    context.Response.StatusCode = StatusCodes.Status403Forbidden;
-    await context.Response.WriteAsJsonAsync(new
-    {
-      error = "stablestation_service_account_forbidden"
-    });
+    await WriteForbidden(context);
+  }
+
+  internal static bool IsStableStationExclusivePath(string path)
+  {
+    var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    return segments.Length >= 3 &&
+      string.Equals(segments[0], "api", StringComparison.OrdinalIgnoreCase) &&
+      string.Equals(segments[1], "v1", StringComparison.OrdinalIgnoreCase) &&
+      (string.Equals(
+         segments[2],
+         "assistance-authorizations",
+         StringComparison.OrdinalIgnoreCase) ||
+       (segments.Length >= 4 &&
+        string.Equals(segments[2], "stablestation", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(segments[3], "agent-enrollments", StringComparison.OrdinalIgnoreCase)));
   }
 
   internal static bool IsAllowed(string method, string path)
@@ -64,5 +85,14 @@ public class StableStationServiceAccountHttpGuardMiddleware(RequestDelegate next
       Guid.TryParse(user.FindFirst(PrincipalClaimTypes.PrincipalId)?.Value, out var principalId) &&
       principalId == serviceAccountId.Value &&
       user.FindFirst(PrincipalClaimTypes.PrincipalType)?.Value == PrincipalClaimTypes.ServerServiceAccount;
+  }
+
+  private static async Task WriteForbidden(HttpContext context)
+  {
+    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+    await context.Response.WriteAsJsonAsync(new
+    {
+      error = "stablestation_service_account_forbidden"
+    });
   }
 }
