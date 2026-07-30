@@ -34,4 +34,6 @@ jobs:
     name: test
     uses: ./.github/workflows/run-tests.yml
     with:
-      use_self_hosted_runners: ${{ github.event_name != 'workflow_dispatch' || inputs.use_self_hosted_runners }}
+      # Upstream PRs use bitbound self-hosted runners. Fork PRs cannot access
+      # those machines and must remain verifiable on GitHub-hosted runners.
+      use_self_hosted_runners: ${{ github.repository_owner == 'bitbound' && (github.event_name != 'workflow_dispatch' || inputs.use_self_hosted_runners) }}
