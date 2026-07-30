@@ -89,15 +89,19 @@ isolated StableStation prototype. It can be started manually after the workflow 
 on the default branch, or by pushing a controlled
 `stablestation-image-vX.Y.Z.W` tag whose version has four numeric components.
 
-- It builds `linux/amd64` from the exact selected Git revision.
+- It builds `linux/amd64` plus an unsigned Windows x64 Agent, DesktopClient,
+  and Installer from the exact selected Git revision.
 - It requires an explicit four-component numeric ControlR version.
 - It publishes only the immutable
   `ghcr.io/hurrisonma/controlr-server:sha-<full-commit-sha>` tag.
 - The workflow summary prints the registry digest that StableStation must pin.
 - It uses the repository `GITHUB_TOKEN`; no Docker Hub credentials are required.
 - It publishes SBOM and provenance attestations with the image.
+- It uploads the Windows x64 client downloads as a 30-day workflow artifact and
+  embeds the same files in the Server image under `/downloads/win-x64`.
 
-This server image is not the complete StableStation Remote Assistance release. In
-particular, it does not publish signed Windows Agent/DesktopClient packages and does
-not lift the remaining capability, Local Gate, generation fencing, or session
-revocation blockers.
+The Windows files are intentionally unsigned because this fork does not own the
+upstream project's Azure signing identity. They are suitable for controlled internal
+validation only. Production rollout still requires a StableStation code-signing
+identity; the capability boundary, Local Gate, generation fencing, and session
+revocation controls are included in these artifacts.

@@ -61,11 +61,13 @@ script and ACL contract.
 
 ## Publishing
 
-`.github/workflows/publish-stablestation-ghcr.yml` publishes the Server as an immutable
-`ghcr.io/hurrisonma/controlr-server:sha-<full-commit>` Linux AMD64 image with SBOM and provenance.
-StableStation records the resulting registry digest and exact source commit in
+`.github/workflows/publish-stablestation-ghcr.yml` builds the Server and the matching Windows x64
+Agent, DesktopClient, and Installer from one exact revision. It publishes the Server as an immutable
+`ghcr.io/hurrisonma/controlr-server:sha-<full-commit>` Linux AMD64 image with SBOM and provenance,
+embeds the Windows downloads in that image, and retains the same Windows files as a workflow
+artifact. StableStation records the resulting registry digest and exact source commit in
 `integrations/controlr/upstream.lock.json`.
 
-The Windows Agent and DesktopClient must be built and signed from the same reviewed fork revision.
-Do not deploy an upstream Agent with the StableStation Server: it does not contain the mandatory
-local generation gate.
+The fork workflow's Windows binaries are unsigned internal-test artifacts. Production rollout
+requires an approved StableStation code-signing identity. Do not deploy an upstream Agent with the
+StableStation Server: it does not contain the mandatory local generation gate.

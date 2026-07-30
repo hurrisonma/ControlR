@@ -1,5 +1,5 @@
-name: Publish StableStation Server Image
-run-name: Publish StableStation server ${{ github.sha }}
+name: Publish StableStation Remote Assistance
+run-name: Publish StableStation Remote Assistance ${{ github.sha }}
 
 on:
   push:
@@ -13,6 +13,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
   packages: write
 
@@ -24,10 +25,11 @@ env:
   ImageRepository: ghcr.io/hurrisonma/controlr-server
 
 jobs:
-  publish:
-    name: Build and publish immutable image
+  resolve-version:
+    name: Resolve version
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    outputs:
+      value: ${{ steps.version.outputs.value }}
 
     steps:
       - name: Resolve and validate version
@@ -47,11 +49,127 @@ jobs:
           fi
           echo "value=$ControlRVersion" >> "$GITHUB_OUTPUT"
 
+  build-windows-client:
+    name: Build unsigned Windows x64 client
+    runs-on: windows-latest
+    timeout-minutes: 90
+    needs: resolve-version
+
+    steps:
       - name: Checkout exact source revision
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
           submodules: recursive
+
+      - name: Set up .NET
+        uses: ./.github/actions/setup-dotnet
+
+      - name: Publish DesktopClient
+        shell: pwsh
+        run: |
+          dotnet publish .\ControlR.DesktopClient\ControlR.DesktopClient.csproj `
+            --configuration Release `
+            --framework net10.0-windows8.0 `
+            --runtime win-x64 `
+            --self-contained true `
+            --output "$env:RUNNER_TEMP\desktop-client" `
+            -p:Version=${{ needs.resolve-version.outputs.value }} `
+            -p:FileVersion=${{ needs.resolve-version.outputs.value }}
+
+      - name: Publish Agent
+        shell: pwsh
+        run: |
+          dotnet publish .\ControlR.Agent\ControlR.Agent.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --output "$env:RUNNER_TEMP\agent" `
+            -p:PublishSingleFile=true `
+            -p:UseAppHost=true `
+            -p:IncludeAllContentForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:IncludeAppSettingsInSingleFile=true `
+            -p:DebugType=none `
+            -p:BundleSigningEnabled=false `
+            -p:Version=${{ needs.resolve-version.outputs.value }} `
+            -p:FileVersion=${{ needs.resolve-version.outputs.value }}
+
+      - name: Publish Installer
+        shell: pwsh
+        run: |
+          dotnet publish .\ControlR.Agent.Installer\ControlR.Agent.Installer.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --output "$env:RUNNER_TEMP\installer" `
+            -p:PublishSingleFile=true `
+            -p:UseAppHost=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=none `
+            -p:BundleSigningEnabled=false `
+            -p:Version=${{ needs.resolve-version.outputs.value }} `
+            -p:FileVersion=${{ needs.resolve-version.outputs.value }}
+
+      - name: Package and verify client downloads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $downloads = Join-Path $env:RUNNER_TEMP 'downloads'
+          $bundle = Join-Path $env:RUNNER_TEMP 'bundle'
+          $desktop = Join-Path $bundle 'DesktopClient'
+          New-Item -Path $downloads, $desktop -ItemType Directory -Force | Out-Null
+
+          $agent = Join-Path $env:RUNNER_TEMP 'agent\ControlR.Agent.exe'
+          $installer = Join-Path $env:RUNNER_TEMP 'installer\ControlR.Agent.Installer.exe'
+          if (-not (Test-Path $agent -PathType Leaf)) { throw "Agent executable is missing: $agent" }
+          if (-not (Test-Path $installer -PathType Leaf)) { throw "Installer executable is missing: $installer" }
+
+          Copy-Item $agent (Join-Path $bundle 'ControlR.Agent.exe') -Force
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'desktop-client\*') $desktop -Recurse -Force
+          Copy-Item $installer (Join-Path $downloads 'ControlR.Agent.Installer.exe') -Force
+          Compress-Archive -Path (Join-Path $bundle '*') `
+            -DestinationPath (Join-Path $downloads 'ControlR.Agent.bundle.zip') -Force
+
+          $manifest = Get-ChildItem $downloads -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$($_.Name)"
+          }
+          $manifest | Set-Content (Join-Path $downloads 'SHA256SUMS.txt') -Encoding ascii
+
+          if ((Get-Item (Join-Path $downloads 'ControlR.Agent.Installer.exe')).Length -le 0) {
+            throw 'Installer is empty.'
+          }
+          if ((Get-Item (Join-Path $downloads 'ControlR.Agent.bundle.zip')).Length -le 0) {
+            throw 'Agent bundle is empty.'
+          }
+
+      - name: Upload Windows client artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stablestation-controlr-win-x64-${{ github.sha }}
+          path: ${{ runner.temp }}\downloads\
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Build and publish immutable image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: [resolve-version, build-windows-client]
+
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Download Windows client into server image
+        uses: actions/download-artifact@v4
+        with:
+          name: stablestation-controlr-win-x64-${{ github.sha }}
+          path: ControlR.Web.Server/wwwroot/downloads/win-x64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -77,9 +195,9 @@ jobs:
             org.opencontainers.image.description=StableStation isolated remote assistance server image
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.version=${{ needs.resolve-version.outputs.value }}
           build-args: |
-            CONTROLR_VERSION=${{ steps.version.outputs.value }}
+            CONTROLR_VERSION=${{ needs.resolve-version.outputs.value }}
           cache-from: type=gha,scope=stablestation-controlr-server
           cache-to: type=gha,mode=max,scope=stablestation-controlr-server
           provenance: mode=max
@@ -104,5 +222,7 @@ jobs:
             echo "- Deploy as: \`${ImageRepository}@${ImageDigest}\`"
             echo "- Source commit: \`${GITHUB_SHA}\`"
             echo
-            echo "This image contains the StableStation RemoteDesktopOnly authorization, generation fencing, and revoke/disconnect enforcement."
+            echo "This image contains the StableStation RemoteDesktopOnly authorization, generation fencing, revoke/disconnect enforcement, and the matching unsigned Windows x64 Agent/Installer downloads."
+            echo
+            echo "The Windows binaries are unsigned internal-test artifacts. Production rollout requires an approved code-signing identity."
           } >> "$GITHUB_STEP_SUMMARY"
