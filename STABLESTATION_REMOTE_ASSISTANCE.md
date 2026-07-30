@@ -61,8 +61,9 @@ Agent identity exists; repeating the same already-provisioned identity is idempo
 - Disable, generation replacement, or lease expiration requests shutdown of every DesktopClient.
 
 The StableStation Trading Connector installer is the only production installer. It deploys the
-private Agent/DesktopClient runtime, writes the Agent and Gate options, creates the delayed-auto
-`StableStation.TradingConnector.RemoteAssistance` LocalSystem service, and owns the ACL contract.
+private Agent/DesktopClient runtime, preserves Agent identity in the normal ControlR appsettings,
+rewrites the later-loaded StableStation managed config and Gate options on every install, creates the
+delayed-auto `StableStation.TradingConnector.RemoteAssistance` LocalSystem service, and owns the ACL contract.
 The Agent service stays running, but every Agent start closes the in-memory Gate. Connector update
 first disables the current Gate/Viewer, then the unified installer stops the service before replacing
 the runtime. Uninstall removes the service, identity, and Gate configuration.

@@ -86,6 +86,23 @@ internal static class HostApplicationBuilderExtensions
     if (loadAppSettings)
     {
       builder.Configuration.AddJsonFile(pathProvider.GetAgentAppSettingsPath(), true, true);
+      if (OperatingSystem.IsWindows())
+      {
+        var commonApplicationData = Environment.GetFolderPath(
+          Environment.SpecialFolder.CommonApplicationData);
+        if (!string.IsNullOrWhiteSpace(commonApplicationData))
+        {
+          var stableStationManagedConfig = Path.Combine(
+            commonApplicationData,
+            "StableStation",
+            "RemoteAssistance",
+            "agent.managed.json");
+          builder.Configuration.AddJsonFile(
+            stableStationManagedConfig,
+            optional: true,
+            reloadOnChange: true);
+        }
+      }
     }
 
     var appOptions = builder.Configuration
