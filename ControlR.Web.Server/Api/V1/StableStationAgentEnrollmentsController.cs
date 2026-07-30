@@ -60,7 +60,7 @@ public partial class StableStationAgentEnrollmentsController(
     var key = await _installerKeyManager.CreateKey(
       tenantId,
       serviceAccountId.Value,
-      CreatorKind.ServiceAccount,
+      CreatorKind.ServerServiceAccount,
       InstallerKeyType.UsageBased,
       1,
       expiresAt,

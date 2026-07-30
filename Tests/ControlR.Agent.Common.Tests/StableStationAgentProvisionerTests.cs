@@ -65,7 +65,7 @@ public class StableStationAgentProvisionerTests
   }
 
   [Fact]
-  public async Task Provision_ExistingIdentityWithNewServerUri_PersistsServerUri()
+  public async Task Provision_ExistingIdentity_ServerUriChanged_PersistsServerUri()
   {
     var now = DateTimeOffset.UtcNow;
     var timeProvider = new FakeTimeProvider(now);

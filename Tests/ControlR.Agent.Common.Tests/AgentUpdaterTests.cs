@@ -106,6 +106,28 @@ public class AgentMaintenanceServiceTests
   }
 
   [Fact]
+  public async Task CheckForUpdate_WhenConnectorOwnsLifecycle_SkipsForcedUpdate()
+  {
+    var fixture = new AgentMaintenanceServiceFixture
+    {
+      ConnectorOwnsLifecycle = true
+    };
+    var updater = fixture.CreateMaintenanceService();
+
+    await updater.CheckForUpdate(force: true, cancellationToken: TestContext.Current.CancellationToken);
+
+    fixture.AgentUpdateApi.Verify(
+      x => x.GetBundleMetadata(It.IsAny<RuntimeId>(), It.IsAny<CancellationToken>()),
+      Times.Never);
+    fixture.DownloadsApi.Verify(
+      x => x.DownloadFile(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+      Times.Never);
+    fixture.ProcessManager.Verify(
+      x => x.Start(It.IsAny<string>(), It.IsAny<string>()),
+      Times.Never);
+  }
+
+  [Fact]
   public async Task CheckForUpdate_WhenInstalledBundleHashDiffers_DownloadsAndLaunchesInstaller()
   {
     var fixture = new AgentMaintenanceServiceFixture();
@@ -267,28 +289,6 @@ public class AgentMaintenanceServiceTests
       Times.Never);
   }
 
-  [Fact]
-  public async Task CheckForUpdate_WhenConnectorOwnsLifecycle_SkipsForcedUpdate()
-  {
-    var fixture = new AgentMaintenanceServiceFixture
-    {
-      ConnectorOwnsLifecycle = true
-    };
-    var updater = fixture.CreateMaintenanceService();
-
-    await updater.CheckForUpdate(force: true, cancellationToken: TestContext.Current.CancellationToken);
-
-    fixture.AgentUpdateApi.Verify(
-      x => x.GetBundleMetadata(It.IsAny<RuntimeId>(), It.IsAny<CancellationToken>()),
-      Times.Never);
-    fixture.DownloadsApi.Verify(
-      x => x.DownloadFile(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
-      Times.Never);
-    fixture.ProcessManager.Verify(
-      x => x.Start(It.IsAny<string>(), It.IsAny<string>()),
-      Times.Never);
-  }
-
   private sealed class AgentMaintenanceServiceFixture
   {
     public AgentMaintenanceServiceFixture()
@@ -330,6 +330,7 @@ public class AgentMaintenanceServiceTests
 
     public Mock<IAgentUpdateApi> AgentUpdateApi { get; } = new();
     public string BundleHashPath { get; } = @"C:\ControlR\.controlr-bundle.sha256";
+    public bool ConnectorOwnsLifecycle { get; init; }
     public Mock<IControlrApi> ControlrApi { get; } = new();
     public Mock<IDownloadsApi> DownloadsApi { get; } = new();
     public FakeFileSystem FileSystem { get; } = new('\\');
@@ -338,7 +339,6 @@ public class AgentMaintenanceServiceTests
     public Mock<IProcessManager> ProcessManager { get; } = new();
     public Mock<IOptionsAccessor> SettingsProvider { get; } = new();
     public Mock<ISystemEnvironment> SystemEnvironment { get; } = new();
-    public bool ConnectorOwnsLifecycle { get; init; }
 
     public AgentMaintenanceService CreateMaintenanceService()
     {

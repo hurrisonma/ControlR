@@ -51,12 +51,12 @@ internal class AgentMaintenanceService(
   ILogger<AgentMaintenanceService> logger) : BackgroundService, IAgentMaintenanceService
 {
   private readonly IHostApplicationLifetime _appLifetime = appLifetime;
+  private readonly StableStationAssistanceGateOptions _assistanceGateOptions = assistanceGateOptions.Value;
   private readonly IControlrApi _controlrApi = controlrApi;
   private readonly IDownloadsApi _downloadsApi = downloadsApi;
   private readonly IFileSystem _fileSystem = fileSystem;
   private readonly IFileSystemPathProvider _fileSystemPathProvider = fileSystemPathProvider;
   private readonly IOptions<InstanceOptions> _instanceOptions = instanceOptions;
-  private readonly StableStationAssistanceGateOptions _assistanceGateOptions = assistanceGateOptions.Value;
   private readonly ILogger<AgentMaintenanceService> _logger = logger;
   private readonly IOptionsAccessor _optionsAccessor = optionsAccessor;
   private readonly IProcessManager _processManager = proessManager;

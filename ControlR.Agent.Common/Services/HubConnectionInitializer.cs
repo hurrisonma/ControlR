@@ -19,11 +19,11 @@ internal class HubConnectionInitializer(
   private readonly IAgentHeartbeatTimer _agentHeartbeatTimer = agentHeartbeatTimer;
   private readonly IAgentMaintenanceService _agentUpdater = agentUpdater;
   private readonly IHostApplicationLifetime _appLifetime = appLifetime;
+  private readonly IOptionsMonitor<AgentAppOptions> _appOptions = appOptions;
   private readonly IHubConnection<IAgentHub> _hubConnection = hubConnection;
   private readonly ILogger<HubConnectionInitializer> _logger = logger;
   private readonly TimeSpan _maxReconnectDelay = TimeSpan.FromSeconds(180);
   private readonly TimeSpan _maxReconnectJitter = TimeSpan.FromSeconds(20);
-  private readonly IOptionsMonitor<AgentAppOptions> _appOptions = appOptions;
   private readonly TimeProvider _timeProvider = timeProvider;
 
   protected override async Task ExecuteAsync(CancellationToken cancellationToken)

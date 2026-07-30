@@ -87,8 +87,8 @@ internal class StableStationAgentProvisioner(
 {
   private readonly IOptionsMonitor<AgentAppOptions> _appOptions = appOptions;
   private readonly StableStationAssistanceGateOptions _assistanceGateOptions = assistanceGateOptions.Value;
-  private readonly IStableStationAgentEnrollmentClient _enrollmentClient = enrollmentClient;
   private readonly IDeviceInfoProvider _deviceInfoProvider = deviceInfoProvider;
+  private readonly IStableStationAgentEnrollmentClient _enrollmentClient = enrollmentClient;
   private readonly IEd25519KeyProvider _keyProvider = keyProvider;
   private readonly ILogger<StableStationAgentProvisioner> _logger = logger;
   private readonly object _nonceLock = new();

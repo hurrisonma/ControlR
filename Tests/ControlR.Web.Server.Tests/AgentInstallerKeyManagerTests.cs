@@ -49,7 +49,7 @@ public class AgentInstallerKeyManagerTests(ITestOutputHelper testOutput) : IAsyn
     var dto = await _keyManager.CreateKey(
       tenantId: _tenantId,
       creatorId: _creatorId,
-      creatorKind: CreatorKind.ServiceAccount,
+      creatorKind: CreatorKind.ServerServiceAccount,
       keyType: InstallerKeyType.UsageBased,
       allowedUses: 1,
       expiration: expiration,
