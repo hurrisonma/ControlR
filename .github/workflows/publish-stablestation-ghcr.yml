@@ -18,7 +18,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-stablestation-server-${{ github.ref }}
+  group: publish-stablestation-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -253,4 +253,117 @@ jobs:
             echo "This image contains the StableStation RemoteDesktopOnly authorization, generation fencing, revoke/disconnect enforcement, and the matching unsigned Windows x64 Connector-managed runtime bundle."
             echo
             echo "The Windows runtime is an unsigned internal-test artifact. Production rollout requires an approved code-signing identity."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-runtime-release:
+    name: Publish immutable Windows runtime release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [resolve-version, build-windows-client, validate, publish]
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download exact Windows runtime artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: stablestation-controlr-win-x64-${{ github.sha }}
+          path: release-assets
+
+      - name: Verify runtime release assets
+        shell: bash
+        env:
+          ControlRVersion: ${{ needs.resolve-version.outputs.value }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+
+          mapfile -t ActualFiles < <(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          ExpectedFiles=(
+            "ControlR.Agent.bundle.zip"
+            "SHA256SUMS.txt"
+            "stablestation-runtime-manifest.json"
+          )
+          if [[ "${ActualFiles[*]}" != "${ExpectedFiles[*]}" ]]; then
+            echo "::error::runtime artifact contains an unexpected file set: ${ActualFiles[*]}"
+            exit 1
+          fi
+
+          sha256sum --check SHA256SUMS.txt
+          jq --exit-status \
+            --arg version "$ControlRVersion" \
+            --arg revision "$GITHUB_SHA" \
+            '
+              .schema == "stablestation.controlr.windows-runtime.v1" and
+              .version == $version and
+              .sourceRevision == $revision and
+              .platform == "win-x64" and
+              .lifecycleOwner == "ss-trading-connector" and
+              .entrypoint == "ControlR.Agent.exe" and
+              .serviceArguments == ["run"] and
+              .standaloneInstaller == false
+            ' \
+            stablestation-runtime-manifest.json >/dev/null
+
+          unzip -t ControlR.Agent.bundle.zip >/dev/null
+          mapfile -t BundleEntries < <(unzip -Z1 ControlR.Agent.bundle.zip)
+          if ! printf '%s\n' "${BundleEntries[@]}" | grep --fixed-strings --line-regexp --quiet "ControlR.Agent.exe"; then
+            echo "::error::runtime bundle does not contain ControlR.Agent.exe"
+            exit 1
+          fi
+          if ! printf '%s\n' "${BundleEntries[@]}" | grep --fixed-strings --line-regexp --quiet "stablestation-runtime-manifest.json"; then
+            echo "::error::runtime bundle does not contain its runtime manifest"
+            exit 1
+          fi
+          if printf '%s\n' "${BundleEntries[@]}" | grep --extended-regexp --quiet '(^|/)ControlR\.Agent\.Installer\.exe$'; then
+            echo "::error::standalone ControlR installer must not be published"
+            exit 1
+          fi
+
+      - name: Create immutable component release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ControlRVersion: ${{ needs.resolve-version.outputs.value }}
+        run: |
+          set -euo pipefail
+          ReleaseTag="stablestation-runtime-v${ControlRVersion}-${GITHUB_SHA}"
+
+          if gh release view "$ReleaseTag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::release already exists and will not be modified: $ReleaseTag"
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${ReleaseTag}" >/dev/null 2>&1; then
+            echo "::error::tag already exists and will not be moved: $ReleaseTag"
+            exit 1
+          fi
+
+          ReleaseNotes="$(
+            printf '%s\n' \
+              "Connector-managed unsigned Windows x64 runtime for StableStation Remote Assistance." \
+              "" \
+              "- Source commit: \`${GITHUB_SHA}\`" \
+              "- Lifecycle owner: \`ss-trading-connector\`" \
+              "- Standalone installer: \`false\`" \
+              "" \
+              "This component is consumed by the existing StableStation Connector packaging pipeline. It is not a separate ControlR installer."
+          )"
+          gh release create "$ReleaseTag" \
+            release-assets/ControlR.Agent.bundle.zip \
+            release-assets/stablestation-runtime-manifest.json \
+            release-assets/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "StableStation ControlR Runtime ${ControlRVersion} (${GITHUB_SHA})" \
+            --notes "$ReleaseNotes" \
+            --prerelease
+
+          {
+            echo "## StableStation Connector-managed Windows Runtime"
+            echo
+            echo "- Release: \`$ReleaseTag\`"
+            echo "- Source commit: \`$GITHUB_SHA\`"
+            echo "- Assets: \`ControlR.Agent.bundle.zip\`, \`stablestation-runtime-manifest.json\`, \`SHA256SUMS.txt\`"
+            echo "- Standalone installer: \`false\`"
           } >> "$GITHUB_STEP_SUMMARY"
