@@ -1,0 +1,99 @@
+name: Publish StableStation Server Image
+run-name: Publish StableStation server ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Numeric ControlR version, for example 0.27.6.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-stablestation-server-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ImageRepository: ghcr.io/hurrisonma/controlr-server
+
+jobs:
+  publish:
+    name: Build and publish immutable image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Validate version
+        shell: bash
+        env:
+          ControlRVersion: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ControlRVersion" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must contain four numeric components, for example 0.27.6.0"
+            exit 1
+          fi
+
+      - name: Checkout exact source revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish server image
+        id: publish
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: .github/docker/stablestation-server.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.ImageRepository }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=StableStation ControlR Server
+            org.opencontainers.image.description=Prototype-only StableStation ControlR server image
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ inputs.version }}
+          build-args: |
+            CONTROLR_VERSION=${{ inputs.version }}
+          cache-from: type=gha,scope=stablestation-controlr-server
+          cache-to: type=gha,mode=max,scope=stablestation-controlr-server
+          provenance: mode=max
+          sbom: true
+
+      - name: Publish immutable image coordinates
+        shell: bash
+        env:
+          ImageDigest: ${{ steps.publish.outputs.digest }}
+          ImageTag: ${{ env.ImageRepository }}:sha-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ImageDigest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::build did not return a valid image digest"
+            exit 1
+          fi
+          {
+            echo "## StableStation ControlR Server Image"
+            echo
+            echo "- Tag: \`$ImageTag\`"
+            echo "- Digest: \`$ImageDigest\`"
+            echo "- Deploy as: \`${ImageRepository}@${ImageDigest}\`"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo
+            echo "This image is for the isolated prototype. It does not lift the remaining RemoteDesktopOnly, Local Gate, generation fencing, or revoke/disconnect blockers."
+          } >> "$GITHUB_STEP_SUMMARY"

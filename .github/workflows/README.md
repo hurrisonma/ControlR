@@ -81,3 +81,21 @@ Docker images are published to Docker Hub:
 - `bitbound/controlr-relay:preview` - Preview relay server
 - `bitbound/controlr-relay:latest` - Production relay server
 - `bitbound/controlr-relay:[version]` - Specific version of relay server
+
+## StableStation GHCR Image
+
+The `publish-stablestation-ghcr.yml` workflow is a fork-specific, manually triggered
+publisher for the isolated StableStation prototype.
+
+- It builds `linux/amd64` from the exact selected Git revision.
+- It requires an explicit four-component numeric ControlR version.
+- It publishes only the immutable
+  `ghcr.io/hurrisonma/controlr-server:sha-<full-commit-sha>` tag.
+- The workflow summary prints the registry digest that StableStation must pin.
+- It uses the repository `GITHUB_TOKEN`; no Docker Hub credentials are required.
+- It publishes SBOM and provenance attestations with the image.
+
+This server image is not the complete StableStation Remote Assistance release. In
+particular, it does not publish signed Windows Agent/DesktopClient packages and does
+not lift the remaining capability, Local Gate, generation fencing, or session
+revocation blockers.
