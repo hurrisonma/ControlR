@@ -80,7 +80,7 @@ public class AssistanceAuthorizationManager(
 
     var authorization = new AssistanceAuthorization
     {
-      Capability = LogonTokenCapability.RemoteDesktop,
+      Capability = LogonTokenCapability.RemoteSupport,
       ConnectorInstanceId = request.ConnectorInstanceId,
       ConnectorSessionId = connectorSessionId,
       DeviceId = request.DeviceId,

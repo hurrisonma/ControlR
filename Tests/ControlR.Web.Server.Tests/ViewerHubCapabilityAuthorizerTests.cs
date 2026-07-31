@@ -70,6 +70,43 @@ public class ViewerHubCapabilityAuthorizerTests
     Assert.False(isAllowed);
   }
 
+  [Theory]
+  [InlineData(nameof(ViewerHub.DisposeDeviceAccessActivity))]
+  [InlineData(nameof(ViewerHub.GetActiveDesktopSessions))]
+  [InlineData(nameof(ViewerHub.InvokeCtrlAltDel))]
+  [InlineData(nameof(ViewerHub.RequestRemoteControlPermission))]
+  [InlineData(nameof(ViewerHub.RequestRemoteControlSession))]
+  [InlineData(nameof(ViewerHub.StartDeviceAccessActivity))]
+  [InlineData(nameof(ViewerHub.CloseTerminalSession))]
+  [InlineData(nameof(ViewerHub.CreateTerminalSession))]
+  [InlineData(nameof(ViewerHub.GetPwshCompletions))]
+  [InlineData(nameof(ViewerHub.SendTerminalInput))]
+  public void RemoteSupportCapability_AllowsDesktopAndTerminalMethods(string hubMethodName)
+  {
+    var user = CreateUser(LogonTokenCapability.RemoteSupport.ToString());
+
+    var isAllowed = ViewerHubCapabilityAuthorizer.IsHubMethodAllowed(user, hubMethodName);
+
+    Assert.True(isAllowed);
+  }
+
+  [Theory]
+  [InlineData(nameof(ViewerHub.RequestVncSession))]
+  [InlineData(nameof(ViewerHub.SendAgentUpdateTrigger))]
+  [InlineData(nameof(ViewerHub.SendChatMessage))]
+  [InlineData(nameof(ViewerHub.SendPowerStateChange))]
+  [InlineData(nameof(ViewerHub.UninstallAgent))]
+  [InlineData(nameof(ViewerHub.UploadFile))]
+  [InlineData("FutureUnmappedMethod")]
+  public void RemoteSupportCapability_DeniesOtherAndUnknownMethods(string hubMethodName)
+  {
+    var user = CreateUser(LogonTokenCapability.RemoteSupport.ToString());
+
+    var isAllowed = ViewerHubCapabilityAuthorizer.IsHubMethodAllowed(user, hubMethodName);
+
+    Assert.False(isAllowed);
+  }
+
   [Fact]
   public void UnrestrictedSession_PreservesExistingAccess()
   {

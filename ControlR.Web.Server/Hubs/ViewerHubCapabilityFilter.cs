@@ -23,7 +23,7 @@ public class ViewerHubCapabilityFilter(
 
     var user = invocationContext.Context.User;
     if (!ViewerHubCapabilityAuthorizer.IsHubMethodAllowed(user, invocationContext.HubMethodName) ||
-        IsRemoteDesktopCapabilitySession(user) &&
+        IsAssistanceCapabilitySession(user) &&
         !await _authorizationManager.IsActive(user, invocationContext.Context.ConnectionAborted))
     {
       _logger.LogWarning(
@@ -43,7 +43,7 @@ public class ViewerHubCapabilityFilter(
     Func<HubLifetimeContext, Task> next)
   {
     var user = context.Context.User;
-    if (!IsRemoteDesktopCapabilitySession(user))
+    if (!IsAssistanceCapabilitySession(user))
     {
       await next(context);
       return;
@@ -101,11 +101,12 @@ public class ViewerHubCapabilityFilter(
     await next(context, exception);
   }
 
-  private static bool IsRemoteDesktopCapabilitySession(System.Security.Claims.ClaimsPrincipal? user)
+  private static bool IsAssistanceCapabilitySession(System.Security.Claims.ClaimsPrincipal? user)
   {
     var capabilities = user?.FindAll(UserClaimTypes.SessionCapability).ToArray() ?? [];
     return capabilities is [var capability] &&
-      capability.Value == LogonTokenCapability.RemoteDesktop.ToString();
+      capability.Value is nameof(LogonTokenCapability.RemoteDesktop) or
+        nameof(LogonTokenCapability.RemoteSupport);
   }
 
   private static bool TryGetAuthorizationId(

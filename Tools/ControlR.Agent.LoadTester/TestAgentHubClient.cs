@@ -34,7 +34,7 @@ public class TestAgentHubClient : IAgentHubClient
     return Task.FromResult(HubResult.Ok());
   }
 
-  public Task<HubResult> CreateTerminalSession(Guid terminalSessionId, string viewerConnectionId)
+  public Task<HubResult> CreateTerminalSession(TerminalSessionRequestDto request)
   {
     Console.WriteLine("Received terminal session request.");
     return HubResult.Ok().AsTaskResult();
@@ -216,4 +216,3 @@ public class TestAgentHubClient : IAgentHubClient
     return Task.FromResult(new ValidateFilePathResponseDto(true));
   }
 }
-

@@ -1,33 +1,43 @@
 ﻿@inject ILazyInjector<IDeviceState> DeviceAccessState
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <MudNavMenu>
   <MudNavLink Disabled="IsDisabled" Href='@($"/device-access?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Home">
     Overview
   </MudNavLink>
 
-  <MudNavLink Disabled="IsDisabled" Href='@($"/device-access/remote-control?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ScreenShare">
-    Remote Control
-  </MudNavLink>
+  @if (_allowRemoteControl)
+  {
+    <MudNavLink Disabled="IsDisabled" Href='@($"/device-access/remote-control?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ScreenShare">
+      Remote Control
+    </MudNavLink>
+  }
 
-  <MudNavLink Disabled="IsDisabled" Href='@($"/device-access/terminal?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Terminal">
-    Terminal
-  </MudNavLink>
+  @if (_allowTerminal)
+  {
+    <MudNavLink Disabled="IsDisabled" Href='@($"/device-access/terminal?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Terminal">
+      Terminal
+    </MudNavLink>
+  }
 
-  <MudNavLink Disabled="IsDisabled" Href='@($"/device-access/chat?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Chat">
-    Chat
-  </MudNavLink>
+  @if (_allowUnrestrictedFeatures)
+  {
+    <MudNavLink Disabled="IsDisabled" Href='@($"/device-access/chat?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Chat">
+      Chat
+    </MudNavLink>
 
-  <MudNavLink Disabled="IsDisabled"  Href='@($"/device-access/file-system?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Folder">
-    File System
-  </MudNavLink>
+    <MudNavLink Disabled="IsDisabled"  Href='@($"/device-access/file-system?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Folder">
+      File System
+    </MudNavLink>
 
-  <MudNavLink Disabled="IsDisabled"  Href='@($"/device-access/remote-logs?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.TextSnippet">
-    Remote Logs
-  </MudNavLink>
+    <MudNavLink Disabled="IsDisabled"  Href='@($"/device-access/remote-logs?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.TextSnippet">
+      Remote Logs
+    </MudNavLink>
 
-  <MudNavLink Disabled="IsDisabled" Href='@($"/device-access/vnc-relay?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Cast">
-    VNC Relay
-  </MudNavLink>
+    <MudNavLink Disabled="IsDisabled" Href='@($"/device-access/vnc-relay?deviceId={GetDeviceId()}")' Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Cast">
+      VNC Relay
+    </MudNavLink>
+  }
 
   @*
   <MudNavLink Disabled="IsDisabled" Href="/device-access/processes" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.MonitorHeart">
@@ -54,6 +64,36 @@
 @code {
   [Parameter]
   public bool IsDisabled { get; set; }
+
+  private bool _allowRemoteControl = true;
+  private bool _allowTerminal = true;
+  private bool _allowUnrestrictedFeatures = true;
+
+  protected override async Task OnInitializedAsync()
+  {
+    var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+    var capabilities = authenticationState.User
+      .FindAll(UserClaimTypes.SessionCapability)
+      .Select(x => x.Value)
+      .ToArray();
+
+    if (capabilities.Length == 0)
+    {
+      return;
+    }
+
+    _allowUnrestrictedFeatures = false;
+    if (capabilities is not [var capability])
+    {
+      _allowRemoteControl = false;
+      _allowTerminal = false;
+      return;
+    }
+
+    _allowRemoteControl = capability is nameof(LogonTokenCapability.RemoteDesktop) or
+      nameof(LogonTokenCapability.RemoteSupport);
+    _allowTerminal = capability == nameof(LogonTokenCapability.RemoteSupport);
+  }
 
   private string GetDeviceId()
   {

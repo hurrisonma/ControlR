@@ -8,6 +8,7 @@ namespace ControlR.Agent.Common.Services.Terminal;
 public interface ITerminalStore
 {
   Task<Result> CreateSession(Guid terminalId, string viewerConnectionId);
+  void CloseAllSessions();
   Task<Result<PwshCompletionsResponseDto>> GetPwshCompletions(PwshCompletionsRequestDto requestDto);
   bool TryRemove(Guid terminalId, [NotNullWhen(true)] out ITerminalSession? terminalSession);
 
@@ -19,6 +20,26 @@ internal class TerminalStore(
   ILogger<TerminalStore> logger) : ITerminalStore
 {
   private readonly MemoryCache _sessionCache = new(new MemoryCacheOptions());
+  private readonly object _sessionsLock = new();
+  private readonly Dictionary<Guid, TerminalSession> _sessions = [];
+
+  public void CloseAllSessions()
+  {
+    KeyValuePair<Guid, TerminalSession>[] sessions;
+    lock (_sessionsLock)
+    {
+      sessions = [.. _sessions];
+    }
+
+    foreach (var (terminalId, terminalSession) in sessions)
+    {
+      if (!terminalSession.IsDisposed)
+      {
+        terminalSession.Dispose();
+      }
+      _sessionCache.Remove(terminalId);
+    }
+  }
 
   public async Task<Result> CreateSession(Guid terminalId, string viewerConnectionId)
   {
@@ -57,6 +78,7 @@ internal class TerminalStore(
         cachedItem is TerminalSession typedItem)
     {
       terminalSession = typedItem;
+      _sessionCache.Remove(terminalId);
       return true;
     }
 
@@ -84,7 +106,7 @@ internal class TerminalStore(
     }
   }
 
-  private static MemoryCacheEntryOptions GetEntryOptions(TerminalSession terminalSession)
+  private MemoryCacheEntryOptions GetEntryOptions(Guid terminalId, TerminalSession terminalSession)
   {
     var entryOptions = new MemoryCacheEntryOptions
     {
@@ -102,6 +124,15 @@ internal class TerminalStore(
 
     entryOptions.RegisterPostEvictionCallback((_, value, _, _) =>
     {
+      lock (_sessionsLock)
+      {
+        if (_sessions.TryGetValue(terminalId, out var currentSession) &&
+            ReferenceEquals(currentSession, value))
+        {
+          _sessions.Remove(terminalId);
+        }
+      }
+
       if (value is TerminalSession { IsDisposed: false } session)
       {
         session.Dispose();
@@ -139,7 +170,11 @@ internal class TerminalStore(
       }
 
       var terminalSession = (TerminalSession)sessionResult.Value;
-      var entryOptions = GetEntryOptions(terminalSession);
+      var entryOptions = GetEntryOptions(terminalId, terminalSession);
+      lock (_sessionsLock)
+      {
+        _sessions[terminalId] = terminalSession;
+      }
       _sessionCache.Set(terminalId, terminalSession, entryOptions);
 
       return Result.Ok<ITerminalSession>(terminalSession);

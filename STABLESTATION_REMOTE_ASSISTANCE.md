@@ -16,7 +16,7 @@ They require the server-scoped service-account policy. The enrollment endpoint d
 from the bootstrap service account and creates an expiring, one-use Agent installer credential;
 StableStation cannot use that account to call the general installer-key API. Authorization creation
 verifies that the requested device belongs to the requested tenant and is online. The server fixes
-the capability to `RemoteDesktop`, limits expiration to 15 minutes, stores the Connector process
+the capability to `RemoteSupport`, limits expiration to 15 minutes, stores the Connector process
 instance and enable generation, and enforces at most one active authorization per StableStation
 endpoint with a PostgreSQL partial unique index.
 
@@ -33,15 +33,17 @@ connection. A single authorization permits only one ViewerHub connection.
 ## Browser capability boundary
 
 The one-time external logon token carries the authorization ID, device scope, Connector instance,
-generation, user/session correlation, and the single `RemoteDesktop` capability.
+generation, user/session correlation, and the single `RemoteSupport` capability.
 
 `RemoteDesktopCapabilityHttpGuardMiddleware` rejects non-allowlisted API access for that session.
-`ViewerHubCapabilityFilter` admits only the desktop methods required by the browser Viewer and
-re-checks the durable authorization on every invocation. Terminal, file, log, script, VNC, device,
-tenant, and service-account operations are outside the allowlist.
+`ViewerHubCapabilityFilter` admits only the desktop and PowerShell terminal methods required by the
+browser Viewer and re-checks the durable authorization on every invocation. The restricted Viewer
+navigation exposes Remote Control and Terminal while hiding Chat, File System, Remote Logs, and VNC
+Relay. File, log, chat, VNC, device, tenant, and service-account operations remain outside the
+server allowlist even if a caller bypasses the navigation UI.
 
 The ViewerHub overwrites assistance fields supplied by the browser with authenticated claims before
-it forwards `RemoteControlSessionRequestDto` to the Agent.
+it forwards remote-control or terminal requests to the Agent.
 
 ## Mandatory Agent gate
 
@@ -56,9 +58,16 @@ Agent identity exists; repeating the same already-provisioned identity is idempo
 - Heartbeat and disable must match the exact active instance and generation.
 - Requests are limited to 8 KiB, a three-second deadline, and eight concurrent local clients.
 - The in-memory gate is closed on every Agent start.
-- A disabled or unconfigured gate rejects remote control; this fork does not fall back to upstream
-  unattended desktop behavior.
-- Disable, generation replacement, or lease expiration requests shutdown of every DesktopClient.
+- A disabled or unconfigured gate rejects remote control and terminal creation/input/completion;
+  this fork does not fall back to upstream unattended behavior.
+- Disable, generation replacement, or lease expiration shuts down every DesktopClient and disposes
+  every Agent PowerShell terminal session.
+
+The terminal runs inside the Windows Agent service and therefore has the Agent service account's
+privileges (LocalSystem in the StableStation installation). It is intentionally covered by the same
+short-lived authorization, one-Viewer rule, exact Connector generation, local Gate, and immediate
+revocation lifecycle as Remote Control. It does not grant File System, Chat, Remote Logs, VNC Relay,
+power, update, uninstall, or other general ControlR capabilities.
 
 The StableStation Trading Connector installer is the only production installer. It deploys the
 private Agent/DesktopClient runtime, preserves Agent identity in the normal ControlR appsettings,

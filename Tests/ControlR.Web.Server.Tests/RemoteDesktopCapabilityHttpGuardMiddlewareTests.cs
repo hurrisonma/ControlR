@@ -106,6 +106,25 @@ public class RemoteDesktopCapabilityHttpGuardMiddlewareTests
   }
 
   [Fact]
+  public async Task Invoke_ValidActiveRemoteSupportCapability_AllowsViewerHub()
+  {
+    var nextCalled = false;
+    var manager = CreateActiveManager();
+    var middleware = new RemoteDesktopCapabilityHttpGuardMiddleware(_ =>
+    {
+      nextCalled = true;
+      return Task.CompletedTask;
+    });
+    var context = CreateContext(LogonTokenCapability.RemoteSupport.ToString());
+    context.Request.Method = HttpMethods.Post;
+    context.Request.Path = $"{AppConstants.ViewerHubPath}/negotiate";
+
+    await middleware.Invoke(context, manager.Object, CreateAdapterOptions().Object);
+
+    Assert.True(nextCalled);
+  }
+
+  [Fact]
   public async Task Invoke_ValidActiveCapability_AllowsWhitelistedRequest()
   {
     var nextCalled = false;

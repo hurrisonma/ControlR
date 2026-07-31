@@ -6,12 +6,14 @@ namespace ControlR.Agent.Common.Services;
 public class StableStationAssistanceGateSessionTerminator(
   IStableStationAssistanceGate gate,
   IIpcServerStore ipcServerStore,
+  ITerminalStore terminalStore,
   TimeProvider timeProvider,
   ILogger<StableStationAssistanceGateSessionTerminator> logger) : BackgroundService
 {
   private readonly IStableStationAssistanceGate _gate = gate;
   private readonly IIpcServerStore _ipcServerStore = ipcServerStore;
   private readonly ILogger<StableStationAssistanceGateSessionTerminator> _logger = logger;
+  private readonly ITerminalStore _terminalStore = terminalStore;
   private readonly TimeProvider _timeProvider = timeProvider;
 
   protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -22,6 +24,7 @@ public class StableStationAssistanceGateSessionTerminator(
       _gate.ExpireIfRequired();
       while (_gate.Closures.TryRead(out var reason))
       {
+        _terminalStore.CloseAllSessions();
         await StopDesktopClients(reason);
       }
     }

@@ -45,6 +45,26 @@ public class StableStationAssistanceGateTests
   }
 
   [Fact]
+  public void Apply_Enable_AllowsTerminalIdentityOnlyForExactAssistanceGeneration()
+  {
+    var gate = CreateGate();
+    var command = CreateCommand("enable", 19, _timeProvider.GetUtcNow().AddSeconds(40));
+
+    Assert.True(gate.Apply(command, _secret, out var enableReason), enableReason);
+    Assert.True(gate.IsAllowed(
+      _authorizationId,
+      _connectorInstanceId,
+      19,
+      out var allowedReason), allowedReason);
+    Assert.False(gate.IsAllowed(
+      _authorizationId,
+      _connectorInstanceId,
+      20,
+      out var deniedReason));
+    Assert.Contains("does not match", deniedReason);
+  }
+
+  [Fact]
   public void Apply_Enable_WithConnectorManagedEndpoint_AcceptsSignedEndpoint()
   {
     var gate = new StableStationAssistanceGate(

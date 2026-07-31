@@ -43,6 +43,7 @@ public class AssistanceAuthorizationManagerTests(ITestOutputHelper testOutput)
 
     Assert.True(result.IsSuccess, result.Reason);
     Assert.Equal(AssistanceAuthorizationStatus.Pending, result.Value.Authorization.Status);
+    Assert.Equal(LogonTokenCapability.RemoteSupport, result.Value.Authorization.Capability);
     var principal = CapabilityPrincipal(
       result.Value.Authorization.AuthorizationId,
       connectorInstanceId,
@@ -131,7 +132,7 @@ public class AssistanceAuthorizationManagerTests(ITestOutputHelper testOutput)
       new Claim(UserClaimTypes.AssistanceConnectorInstanceId, connectorInstanceId.ToString()),
       new Claim(UserClaimTypes.AssistanceEnableGeneration, generation.ToString()),
       new Claim(UserClaimTypes.DeviceSessionScope, deviceId.ToString()),
-      new Claim(UserClaimTypes.SessionCapability, LogonTokenCapability.RemoteDesktop.ToString())
+      new Claim(UserClaimTypes.SessionCapability, LogonTokenCapability.RemoteSupport.ToString())
     ], "test"));
   }
 }

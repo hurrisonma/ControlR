@@ -37,7 +37,8 @@ public class RemoteDesktopCapabilityHttpGuardMiddleware(RequestDelegate next)
     }
 
     if (capabilityClaims is not [var capability] ||
-        capability.Value != LogonTokenCapability.RemoteDesktop.ToString())
+        !Enum.TryParse<LogonTokenCapability>(capability.Value, ignoreCase: false, out var parsedCapability) ||
+        parsedCapability is not (LogonTokenCapability.RemoteDesktop or LogonTokenCapability.RemoteSupport))
     {
       context.Response.StatusCode = StatusCodes.Status403Forbidden;
       await context.Response.WriteAsJsonAsync(new { error = "invalid_session_capability" });

@@ -104,6 +104,19 @@ public class StableStationAssistanceGate(
 
   public bool IsAllowed(RemoteControlSessionRequestDto request, out string reason)
   {
+    return IsAllowed(
+      request.AssistanceAuthorizationId,
+      request.AssistanceConnectorInstanceId,
+      request.AssistanceEnableGeneration,
+      out reason);
+  }
+
+  public bool IsAllowed(
+    Guid? assistanceAuthorizationId,
+    Guid? assistanceConnectorInstanceId,
+    long? assistanceEnableGeneration,
+    out string reason)
+  {
     if (!_options.Enabled)
     {
       reason = "StableStation assistance gate is not configured.";
@@ -123,9 +136,9 @@ public class StableStationAssistanceGate(
         return false;
       }
 
-      if (!request.AssistanceAuthorizationId.HasValue ||
-          request.AssistanceConnectorInstanceId != _connectorInstanceId ||
-          request.AssistanceEnableGeneration != _enableGeneration)
+      if (!assistanceAuthorizationId.HasValue ||
+          assistanceConnectorInstanceId != _connectorInstanceId ||
+          assistanceEnableGeneration != _enableGeneration)
       {
         reason = "Remote assistance request does not match the active local generation.";
         return false;

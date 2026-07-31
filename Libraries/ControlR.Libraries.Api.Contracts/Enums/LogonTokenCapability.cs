@@ -6,4 +6,5 @@ namespace ControlR.Libraries.Api.Contracts.Enums;
 public enum LogonTokenCapability
 {
   RemoteDesktop,
+  RemoteSupport,
 }

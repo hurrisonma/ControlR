@@ -117,6 +117,15 @@ internal sealed class IdentityRevalidatingAuthenticationStateProvider : Revalida
         "User is authenticated but not found in the database. Username: {UserName}",
         principal.Identity?.Name);
     }
+
+    userInfo.Claims.AddRange(principal
+      .FindAll(UserClaimTypes.SessionCapability)
+      .Select(x => new UserClaim
+      {
+        Type = x.Type,
+        Value = x.Value
+      }));
+
     _state.PersistAsJson(PersistentStateKeys.UserInfo, userInfo);
     _state.PersistAsJson(PersistentStateKeys.ServerDecommissioned, _serverLifecycleOptions.CurrentValue.DecommissionServer);
   }

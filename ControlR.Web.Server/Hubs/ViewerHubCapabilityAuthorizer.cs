@@ -14,6 +14,15 @@ public static class ViewerHubCapabilityAuthorizer
     nameof(ViewerHub.StartDeviceAccessActivity),
   ];
 
+  private static readonly HashSet<string> _remoteSupportMethods =
+  [
+    .. _remoteDesktopMethods,
+    nameof(ViewerHub.CloseTerminalSession),
+    nameof(ViewerHub.CreateTerminalSession),
+    nameof(ViewerHub.GetPwshCompletions),
+    nameof(ViewerHub.SendTerminalInput),
+  ];
+
   public static bool IsHubMethodAllowed(ClaimsPrincipal? user, string hubMethodName)
   {
     var capabilityClaims = user?
@@ -32,7 +41,11 @@ public static class ViewerHubCapabilityAuthorizer
       return false;
     }
 
-    return capability == LogonTokenCapability.RemoteDesktop &&
-      _remoteDesktopMethods.Contains(hubMethodName);
+    return capability switch
+    {
+      LogonTokenCapability.RemoteDesktop => _remoteDesktopMethods.Contains(hubMethodName),
+      LogonTokenCapability.RemoteSupport => _remoteSupportMethods.Contains(hubMethodName),
+      _ => false
+    };
   }
 }

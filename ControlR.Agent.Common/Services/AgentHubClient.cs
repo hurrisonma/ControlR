@@ -236,14 +236,28 @@ internal class AgentHubClient(
     }
   }
 
-  public async Task<HubResult> CreateTerminalSession(Guid terminalSessionId, string viewerConnectionId)
+  public async Task<HubResult> CreateTerminalSession(TerminalSessionRequestDto request)
   {
     try
     {
-      _logger.LogInformation("Terminal session started.  Viewer Connection ID: {ConnectionId}",
-        viewerConnectionId);
+      if (!_stableStationAssistanceGate.IsAllowed(
+          request.AssistanceAuthorizationId,
+          request.AssistanceConnectorInstanceId,
+          request.AssistanceEnableGeneration,
+          out var gateReason))
+      {
+        _logger.LogWarning(
+          "Terminal session rejected by the StableStation local gate. Reason: {Reason}",
+          gateReason);
+        return HubResult.Fail(gateReason);
+      }
 
-      return (await _terminalStore.CreateSession(terminalSessionId, viewerConnectionId)).ToHubResult();
+      _logger.LogInformation("Terminal session started.  Viewer Connection ID: {ConnectionId}",
+        request.ViewerConnectionId);
+
+      return (await _terminalStore.CreateSession(
+        request.TerminalSessionId,
+        request.ViewerConnectionId)).ToHubResult();
     }
     catch (Exception ex)
     {
@@ -405,6 +419,15 @@ internal class AgentHubClient(
   {
     try
     {
+      if (!_stableStationAssistanceGate.IsAllowed(
+          request.AssistanceAuthorizationId,
+          request.AssistanceConnectorInstanceId,
+          request.AssistanceEnableGeneration,
+          out var gateReason))
+      {
+        return HubResult.Fail<PwshCompletionsResponseDto>(gateReason);
+      }
+
       return (await _terminalStore.GetPwshCompletions(request)).ToHubResult();
     }
     catch (Exception ex)
@@ -520,6 +543,15 @@ internal class AgentHubClient(
     try
     {
       Guard.IsNotNullOrWhiteSpace(dto.ViewerConnectionId);
+
+      if (!_stableStationAssistanceGate.IsAllowed(
+          dto.AssistanceAuthorizationId,
+          dto.AssistanceConnectorInstanceId,
+          dto.AssistanceEnableGeneration,
+          out var gateReason))
+      {
+        return HubResult.Fail(gateReason);
+      }
 
       return (await _terminalStore.WriteInput(
         dto.TerminalId,

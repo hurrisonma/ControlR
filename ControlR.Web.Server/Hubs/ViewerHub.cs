@@ -109,7 +109,7 @@ public class ViewerHub(
 
       var createResult = await _agentHub.Clients
         .Client(authResult.Value.ConnectionId)
-        .CreateTerminalSession(terminalSessionId, Context.ConnectionId);
+        .CreateTerminalSession(CreateTerminalSessionRequest(terminalSessionId));
 
       _logger.LogInformation("Create terminal session.  Success: {IsSuccess}", createResult.IsSuccess);
 
@@ -158,7 +158,14 @@ public class ViewerHub(
       }
 
       // Create a new request with ViewerConnectionId
-      var requestWithViewerConnection = request with { ViewerConnectionId = Context.ConnectionId };
+      var (authorizationId, connectorInstanceId, enableGeneration) = GetAssistanceIdentity();
+      var requestWithViewerConnection = request with
+      {
+        AssistanceAuthorizationId = authorizationId,
+        AssistanceConnectorInstanceId = connectorInstanceId,
+        AssistanceEnableGeneration = enableGeneration,
+        ViewerConnectionId = Context.ConnectionId
+      };
 
       return await _agentHub.Clients
         .Client(authResult.Value.ConnectionId)
@@ -643,7 +650,14 @@ public class ViewerHub(
       }
 
       // Create a new DTO with ViewerConnectionId
-      var dtoWithViewerConnection = dto with { ViewerConnectionId = Context.ConnectionId };
+      var (authorizationId, connectorInstanceId, enableGeneration) = GetAssistanceIdentity();
+      var dtoWithViewerConnection = dto with
+      {
+        AssistanceAuthorizationId = authorizationId,
+        AssistanceConnectorInstanceId = connectorInstanceId,
+        AssistanceEnableGeneration = enableGeneration,
+        ViewerConnectionId = Context.ConnectionId
+      };
 
       var sendResult = await _agentHub.Clients
         .Client(authResult.Value.ConnectionId)
@@ -910,6 +924,37 @@ public class ViewerHub(
 
     Guard.IsNotNull(user);
     return user;
+  }
+
+  private TerminalSessionRequestDto CreateTerminalSessionRequest(Guid terminalSessionId)
+  {
+    var (authorizationId, connectorInstanceId, enableGeneration) = GetAssistanceIdentity();
+    return new TerminalSessionRequestDto(terminalSessionId, Context.ConnectionId)
+    {
+      AssistanceAuthorizationId = authorizationId,
+      AssistanceConnectorInstanceId = connectorInstanceId,
+      AssistanceEnableGeneration = enableGeneration
+    };
+  }
+
+  private (Guid? AuthorizationId, Guid? ConnectorInstanceId, long? EnableGeneration) GetAssistanceIdentity()
+  {
+    var authorizationId = Guid.TryParse(
+      Context.User?.FindFirstValue(UserClaimTypes.AssistanceAuthorizationId),
+      out var parsedAuthorizationId)
+      ? parsedAuthorizationId
+      : null;
+    var connectorInstanceId = Guid.TryParse(
+      Context.User?.FindFirstValue(UserClaimTypes.AssistanceConnectorInstanceId),
+      out var parsedConnectorInstanceId)
+      ? parsedConnectorInstanceId
+      : null;
+    var enableGeneration = long.TryParse(
+      Context.User?.FindFirstValue(UserClaimTypes.AssistanceEnableGeneration),
+      out var parsedEnableGeneration)
+      ? parsedEnableGeneration
+      : null;
+    return (authorizationId, connectorInstanceId, enableGeneration);
   }
 
   private async Task<HubResult<Device>> TryAuthorizeAgainstDevice(
