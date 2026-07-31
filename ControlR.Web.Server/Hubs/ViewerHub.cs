@@ -939,17 +939,17 @@ public class ViewerHub(
 
   private (Guid? AuthorizationId, Guid? ConnectorInstanceId, long? EnableGeneration) GetAssistanceIdentity()
   {
-    var authorizationId = Guid.TryParse(
+    Guid? authorizationId = Guid.TryParse(
       Context.User?.FindFirstValue(UserClaimTypes.AssistanceAuthorizationId),
       out var parsedAuthorizationId)
       ? parsedAuthorizationId
       : null;
-    var connectorInstanceId = Guid.TryParse(
+    Guid? connectorInstanceId = Guid.TryParse(
       Context.User?.FindFirstValue(UserClaimTypes.AssistanceConnectorInstanceId),
       out var parsedConnectorInstanceId)
       ? parsedConnectorInstanceId
       : null;
-    var enableGeneration = long.TryParse(
+    long? enableGeneration = long.TryParse(
       Context.User?.FindFirstValue(UserClaimTypes.AssistanceEnableGeneration),
       out var parsedEnableGeneration)
       ? parsedEnableGeneration
