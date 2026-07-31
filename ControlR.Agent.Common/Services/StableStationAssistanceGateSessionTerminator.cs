@@ -1,4 +1,5 @@
 using ControlR.Libraries.Api.Contracts.Dtos.IpcDtos;
+using ControlR.Agent.Common.Services.Terminal;
 using Microsoft.Extensions.Hosting;
 
 namespace ControlR.Agent.Common.Services;
