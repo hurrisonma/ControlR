@@ -58,12 +58,18 @@ public class LogonTokenAuthenticationHandler(
       return AuthenticateResult.Fail("External logon token capability is required.");
     }
 
+    if (string.IsNullOrWhiteSpace(user.Email))
+    {
+      return AuthenticateResult.Fail("Email is required for logon token.");
+    }
+
     var claims = new List<Claim>
     {
       new(UserClaimTypes.UserId, user.Id.ToString()),
       new(UserClaimTypes.TenantId, user.TenantId.ToString()),
       new(ClaimTypes.NameIdentifier, user.Id.ToString()),
       new(ClaimTypes.Name, user.UserName ?? "User"),
+      new(ClaimTypes.Email, user.Email),
       new(UserClaimTypes.AuthenticationMethod, LogonTokenAuthenticationSchemeOptions.DefaultScheme),
       new(UserClaimTypes.DeviceSessionScope, deviceId.ToString()),
     };

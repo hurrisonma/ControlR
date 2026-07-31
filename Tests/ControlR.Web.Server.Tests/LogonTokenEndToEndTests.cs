@@ -123,6 +123,11 @@ public class LogonTokenEndToEndTests(ITestOutputHelper testOutput)
       firstAccessResponse.StatusCode == System.Net.HttpStatusCode.Redirect ||
       firstAccessResponse.StatusCode == System.Net.HttpStatusCode.Found,
       $"Expected success or redirect on first access, but got {firstAccessResponse.StatusCode}");
+    var firstAccessHtml = await firstAccessResponse.Content.ReadAsStringAsync(
+      TestContext.Current.CancellationToken);
+    Assert.DoesNotContain(
+      "You are not authorized to access this page.",
+      firstAccessHtml);
 
     // Phase 4: Try to use the same logon token URL again (should fail - token consumed)
     var secondAccessResponse = await newClient.GetAsync(deviceAccessUri, TestContext.Current.CancellationToken);
