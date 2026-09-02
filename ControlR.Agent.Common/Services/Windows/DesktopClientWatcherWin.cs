@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.Versioning;
+using ControlR.Agent.Common.Configuration;
 using ControlR.Agent.Common.Interfaces;
 using ControlR.Libraries.NativeInterop.Windows;
 using ControlR.Libraries.Api.Contracts.Dtos.Devices;
@@ -9,6 +10,7 @@ using ControlR.Libraries.Shared.Services.Processes;
 using ControlR.Libraries.Shared.Services.FileSystem;
 using ControlR.Libraries.Shared.Logging;
 using ControlR.Agent.Common.Services.Windows.Internals;
+using Microsoft.Extensions.Options;
 
 namespace ControlR.Agent.Common.Services.Windows;
 
@@ -27,11 +29,14 @@ internal class DesktopClientWatcherWin(
   IDesktopClientLaunchTracker launchTracker,
   IWaiter waiter,
   IFileSystemPathProvider pathProvider,
+  IOptions<StableStationAssistanceGateOptions> assistanceGateOptions,
   ILogger<DesktopClientWatcherWin> logger) : BackgroundService
 {
-  private static readonly TimeSpan DuplicateExitTimeout = TimeSpan.FromSeconds(2);
-  private static readonly TimeSpan DuplicateShutdownTimeout = TimeSpan.FromSeconds(2);
+  private static readonly TimeSpan ClientExitTimeout = TimeSpan.FromSeconds(2);
+  private static readonly TimeSpan ClientShutdownTimeout = TimeSpan.FromSeconds(2);
+  internal static readonly TimeSpan IneligibleSessionGracePeriod = TimeSpan.FromSeconds(30);
 
+  private readonly StableStationAssistanceGateOptions _assistanceGateOptions = assistanceGateOptions.Value;
   private readonly IDesktopClientFileVerifier _desktopClientFileVerifier = desktopClientFileVerifier;
   private readonly IDesktopClientRepairCoordinator _desktopClientRepairCoordinator = desktopClientRepairCoordinator;
   private readonly IDesktopSessionProvider _desktopSessionProvider = desktopSessionProvider;
@@ -46,22 +51,33 @@ internal class DesktopClientWatcherWin(
   private readonly TimeProvider _timeProvider = timeProvider;
   private readonly IWaiter _waiter = waiter;
   private readonly IWin32Interop _win32Interop = win32Interop;
+  private readonly Dictionary<int, IneligibleDesktopClientState> _ineligibleDesktopClients = [];
 
   internal async Task RunIteration(
     IReadOnlyCollection<DesktopSession> activeSessions,
     DesktopSession[] desktopClients,
     CancellationToken stoppingToken)
   {
-    var activeSessionIds = activeSessions
+    var eligibleSessions = GetEligibleSessions(activeSessions);
+    var reportedActiveSessionIds = activeSessions
+      .Where(x => x.SystemSessionId >= 0)
+      .Select(x => x.SystemSessionId)
+      .ToHashSet();
+    var eligibleSessionIds = eligibleSessions
       .Select(x => x.SystemSessionId)
       .ToHashSet();
 
-    _launchTracker.Reconcile(activeSessionIds, desktopClients);
+    _launchTracker.Reconcile(reportedActiveSessionIds, desktopClients);
+    await DisposeIneligibleClients(eligibleSessionIds, desktopClients, stoppingToken);
+
+    var eligibleDesktopClients = desktopClients
+      .Where(x => eligibleSessionIds.Contains(x.SystemSessionId))
+      .ToArray();
 
     // Dispose of duplicate clients, those connected to the same session but not the "active" one.
-    await DisposeDuplicateClients(desktopClients, stoppingToken);
+    await DisposeDuplicateClients(eligibleDesktopClients, stoppingToken);
 
-    foreach (var session in activeSessions)
+    foreach (var session in eligibleSessions)
     {
       var repairKey = GetRepairSessionKey(session.SystemSessionId);
 
@@ -81,7 +97,7 @@ internal class DesktopClientWatcherWin(
         session.SystemSessionId);
 
       var refreshedDesktopClients = await _desktopSessionProvider.GetActiveDesktopClients();
-      _launchTracker.Reconcile(activeSessionIds, refreshedDesktopClients);
+      _launchTracker.Reconcile(reportedActiveSessionIds, refreshedDesktopClients);
 
       if (refreshedDesktopClients.Any(x => x.SystemSessionId == session.SystemSessionId))
       {
@@ -152,7 +168,7 @@ internal class DesktopClientWatcherWin(
     }
     finally
     {
-      
+      _ineligibleDesktopClients.Clear();
       _launchTracker.Clear();
     }
   }
@@ -160,6 +176,18 @@ internal class DesktopClientWatcherWin(
   private static string GetRepairSessionKey(int sessionId)
   {
     return $"windows-session-{sessionId}";
+  }
+
+  private DesktopSession[] GetEligibleSessions(IReadOnlyCollection<DesktopSession> activeSessions)
+  {
+    if (!_assistanceGateOptions.ConnectorOwnsLifecycle)
+    {
+      return [.. activeSessions];
+    }
+
+    return [.. activeSessions.Where(session =>
+      session.SystemSessionId >= 0 &&
+      !string.IsNullOrWhiteSpace(session.Username))];
   }
 
   private static bool TryGetProcessSessionId(IProcess process, out int sessionId)
@@ -231,9 +259,11 @@ internal class DesktopClientWatcherWin(
           string.Join(", ", duplicates));
 
         await Task.WhenAll(duplicates.Select(processId =>
-          StopDuplicateClient(
+          StopDesktopClient(
             activeClient.SystemSessionId,
             processId,
+            "Duplicate client detected",
+            "duplicate",
             cancellationToken)));
       }
     }
@@ -241,6 +271,67 @@ internal class DesktopClientWatcherWin(
     {
       _logger.LogError(ex, "Error while disposing duplicate clients.");
     }
+  }
+
+  private async Task DisposeIneligibleClients(
+    IReadOnlySet<int> activeSessionIds,
+    IReadOnlyCollection<DesktopSession> desktopClients,
+    CancellationToken cancellationToken)
+  {
+    if (!_assistanceGateOptions.ConnectorOwnsLifecycle)
+    {
+      _ineligibleDesktopClients.Clear();
+      return;
+    }
+
+    var currentProcessIds = desktopClients
+      .Select(x => x.ProcessId)
+      .ToHashSet();
+
+    foreach (var processId in _ineligibleDesktopClients.Keys.ToArray())
+    {
+      if (!currentProcessIds.Contains(processId))
+      {
+        _ineligibleDesktopClients.Remove(processId);
+      }
+    }
+
+    var now = _timeProvider.GetUtcNow();
+    var clientsToStop = new List<DesktopSession>();
+
+    foreach (var desktopClient in desktopClients)
+    {
+      if (activeSessionIds.Contains(desktopClient.SystemSessionId))
+      {
+        _ineligibleDesktopClients.Remove(desktopClient.ProcessId);
+        continue;
+      }
+
+      if (!_ineligibleDesktopClients.TryGetValue(desktopClient.ProcessId, out var state) ||
+          state.SessionId != desktopClient.SystemSessionId)
+      {
+        _ineligibleDesktopClients[desktopClient.ProcessId] = new IneligibleDesktopClientState(
+          desktopClient.SystemSessionId,
+          now);
+        continue;
+      }
+
+      if (now - state.FirstObservedAt <= IneligibleSessionGracePeriod)
+      {
+        continue;
+      }
+
+      clientsToStop.Add(desktopClient);
+      _ineligibleDesktopClients.Remove(desktopClient.ProcessId);
+    }
+
+    await Task.WhenAll(clientsToStop.Select(desktopClient =>
+      StopDesktopClient(
+        desktopClient.SystemSessionId,
+        desktopClient.ProcessId,
+        "No eligible logged-in Windows session remains",
+        "ineligible",
+        cancellationToken)));
   }
 
   private async Task<bool> LaunchDesktopClient(int sessionId, CancellationToken cancellationToken)
@@ -352,12 +443,14 @@ internal class DesktopClientWatcherWin(
     }
   }
 
-  private async Task StopDuplicateClient(
+  private async Task StopDesktopClient(
     int sessionId,
     int processId,
+    string shutdownReason,
+    string lifecycleReason,
     CancellationToken cancellationToken)
   {
-    if (!_ipcServerStore.TryRemove(processId, out var duplicate))
+    if (!_ipcServerStore.TryRemove(processId, out var clientRecord))
     {
       return;
     }
@@ -365,49 +458,53 @@ internal class DesktopClientWatcherWin(
     try
     {
       _logger.LogInformation(
-        "Stopping duplicate desktop client. Session: {SessionId}, PID: {ProcessId}",
+        "Stopping {LifecycleReason} desktop client. Session: {SessionId}, PID: {ProcessId}",
+        lifecycleReason,
         sessionId,
         processId);
 
       try
       {
-        var shutdownDto = new ShutdownCommandDto("Duplicate client detected");
-        await duplicate.Server.Client
+        var shutdownDto = new ShutdownCommandDto(shutdownReason);
+        await clientRecord.Server.Client
           .ShutdownDesktopClient(shutdownDto)
-          .WaitAsync(DuplicateShutdownTimeout, cancellationToken);
+          .WaitAsync(ClientShutdownTimeout, cancellationToken);
       }
       catch (Exception ex)
       {
         _logger.LogWarning(
           ex,
-          "Duplicate desktop client did not accept the shutdown request. Session: {SessionId}, PID: {ProcessId}",
+          "{LifecycleReason} desktop client did not accept the shutdown request. Session: {SessionId}, PID: {ProcessId}",
+          lifecycleReason,
           sessionId,
           processId);
       }
 
-      if (IsProcessAlive(duplicate.Process))
+      if (IsProcessAlive(clientRecord.Process))
       {
         try
         {
           using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-          cts.CancelAfter(DuplicateExitTimeout);
-          await duplicate.Process.WaitForExitAsync(cts.Token);
+          cts.CancelAfter(ClientExitTimeout);
+          await clientRecord.Process.WaitForExitAsync(cts.Token);
         }
         catch (Exception ex)
         {
           _logger.LogDebug(
             ex,
-            "Duplicate desktop client did not exit during the graceful window. Session: {SessionId}, PID: {ProcessId}",
+            "{LifecycleReason} desktop client did not exit during the graceful window. Session: {SessionId}, PID: {ProcessId}",
+            lifecycleReason,
             sessionId,
             processId);
         }
       }
 
-      if (IsProcessAlive(duplicate.Process))
+      if (IsProcessAlive(clientRecord.Process))
       {
-        duplicate.Process.Kill();
+        clientRecord.Process.Kill();
         _logger.LogInformation(
-          "Terminated duplicate desktop client. Session: {SessionId}, PID: {ProcessId}",
+          "Terminated {LifecycleReason} desktop client. Session: {SessionId}, PID: {ProcessId}",
+          lifecycleReason,
           sessionId,
           processId);
       }
@@ -416,15 +513,20 @@ internal class DesktopClientWatcherWin(
     {
       _logger.LogWarning(
         ex,
-        "Failed to terminate duplicate desktop client. Session: {SessionId}, PID: {ProcessId}",
+        "Failed to terminate {LifecycleReason} desktop client. Session: {SessionId}, PID: {ProcessId}",
+        lifecycleReason,
         sessionId,
         processId);
     }
     finally
     {
-      Disposer.DisposeAll(duplicate.Process, duplicate.Server);
+      Disposer.DisposeAll(clientRecord.Process, clientRecord.Server);
     }
   }
+
+  private sealed record IneligibleDesktopClientState(
+    int SessionId,
+    DateTimeOffset FirstObservedAt);
 
   private void StopFailedLaunch(DesktopClientLaunchState launchState)
   {

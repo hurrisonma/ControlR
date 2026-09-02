@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Runtime.Versioning;
+using ControlR.Agent.Common.Configuration;
 using ControlR.Agent.Common.Interfaces;
 using ControlR.Agent.Common.Services;
 using ControlR.Agent.Common.Services.Windows;
@@ -15,6 +16,7 @@ using ControlR.Libraries.Shared.Services.FileSystem;
 using ControlR.Libraries.Shared.Services.Processes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 
@@ -216,6 +218,162 @@ public class DesktopClientWatcherWinTests
   }
 
   [Fact]
+  public async Task RunIteration_WhenConnectorManagedSessionHasNoUser_DoesNotLaunchDesktopClient()
+  {
+    IProcess? startedProcess = null;
+    var watcher = CreateWatcher(connectorOwnsLifecycle: true);
+
+    await watcher.RunIteration(
+      [new DesktopSession { SystemSessionId = 5, Username = string.Empty }],
+      [],
+      CancellationToken.None);
+
+    _win32Interop.Verify(x => x.CreateInteractiveSystemProcess(
+      It.IsAny<string>(),
+      It.IsAny<int>(),
+      It.IsAny<bool>(),
+      out startedProcess), Times.Never);
+  }
+
+  [Fact]
+  public async Task RunIteration_WhenConnectorManagedSessionIdIsInvalid_DoesNotLaunchDesktopClient()
+  {
+    IProcess? startedProcess = null;
+    var watcher = CreateWatcher(connectorOwnsLifecycle: true);
+
+    await watcher.RunIteration(
+      [new DesktopSession { SystemSessionId = -1, Username = "test-user" }],
+      [],
+      CancellationToken.None);
+
+    _win32Interop.Verify(x => x.CreateInteractiveSystemProcess(
+      It.IsAny<string>(),
+      It.IsAny<int>(),
+      It.IsAny<bool>(),
+      out startedProcess), Times.Never);
+  }
+
+  [Fact]
+  public async Task RunIteration_WhenStandardControlRSessionHasNoUser_PreservesUpstreamLaunchBehavior()
+  {
+    IProcess? startedProcess = null;
+    var watcher = CreateWatcher(connectorOwnsLifecycle: false);
+
+    _desktopSessionProvider
+      .Setup(x => x.GetActiveDesktopClients())
+      .ReturnsAsync([]);
+    _win32Interop
+      .Setup(x => x.CreateInteractiveSystemProcess(
+        It.IsAny<string>(),
+        5,
+        true,
+        out startedProcess))
+      .Returns(false);
+
+    await watcher.RunIteration(
+      [new DesktopSession { SystemSessionId = 5, Username = string.Empty }],
+      [],
+      CancellationToken.None);
+
+    _win32Interop.Verify(x => x.CreateInteractiveSystemProcess(
+      It.IsAny<string>(),
+      5,
+      true,
+      out startedProcess), Times.Once);
+  }
+
+  [Fact]
+  public async Task RunIteration_WhenConnectorManagedPendingLaunchTemporarilyHasNoUser_DoesNotStopProcess()
+  {
+    IProcess? startedProcess = null;
+    var tracker = new DesktopClientLaunchTracker(_timeProvider, _launchTrackerLogger);
+    var process = CreateProcess(processId: 101, sessionId: 5, hasExited: false);
+    var watcher = CreateWatcher(connectorOwnsLifecycle: true, launchTracker: tracker);
+
+    tracker.TrackLaunch(5, process.Object);
+
+    await watcher.RunIteration(
+      [new DesktopSession { SystemSessionId = 5, Username = string.Empty }],
+      [],
+      CancellationToken.None);
+
+    _win32Interop.Verify(x => x.CreateInteractiveSystemProcess(
+      It.IsAny<string>(),
+      It.IsAny<int>(),
+      It.IsAny<bool>(),
+      out startedProcess), Times.Never);
+    process.Verify(x => x.Kill(), Times.Never);
+    Assert.Equal(1, tracker.Count);
+  }
+
+  [Fact]
+  public async Task RunIteration_WhenRegisteredClientRemainsInIneligibleSession_StopsAfterGracePeriod()
+  {
+    var staleProcess = CreateProcess(processId: 101, sessionId: 5, hasExited: false);
+    var staleClient = new Mock<IDesktopClientRpcService>();
+    var staleServer = new Mock<IIpcServer>();
+    var staleRecord = new IpcServerRecord(staleProcess.Object, staleServer.Object);
+    var servers = new ReadOnlyDictionary<int, IpcServerRecord>(new Dictionary<int, IpcServerRecord>
+    {
+      [101] = staleRecord,
+    });
+    IpcServerRecord? removedRecord = staleRecord;
+    var watcher = CreateWatcher(connectorOwnsLifecycle: true);
+    var desktopClients = new[]
+    {
+      new DesktopSession { ProcessId = 101, SystemSessionId = 5 },
+    };
+
+    staleServer.SetupGet(x => x.Client).Returns(staleClient.Object);
+    staleClient
+      .Setup(x => x.ShutdownDesktopClient(It.IsAny<ShutdownCommandDto>()))
+      .ThrowsAsync(new InvalidOperationException("IPC connection lost."));
+    staleProcess
+      .Setup(x => x.WaitForExitAsync(It.IsAny<CancellationToken>()))
+      .ThrowsAsync(new OperationCanceledException());
+    _ipcServerStore.SetupGet(x => x.Servers).Returns(servers);
+    _ipcServerStore
+      .Setup(x => x.TryRemove(101, out removedRecord))
+      .Returns(true);
+
+    await watcher.RunIteration([], desktopClients, CancellationToken.None);
+
+    _ipcServerStore.Verify(x => x.TryRemove(101, out removedRecord), Times.Never);
+    staleProcess.Verify(x => x.Kill(), Times.Never);
+
+    _timeProvider.Advance(
+      DesktopClientWatcherWin.IneligibleSessionGracePeriod + TimeSpan.FromSeconds(1));
+    await watcher.RunIteration([], desktopClients, CancellationToken.None);
+
+    _ipcServerStore.Verify(x => x.TryRemove(101, out removedRecord), Times.Once);
+    staleProcess.Verify(x => x.Kill(), Times.Once);
+  }
+
+  [Fact]
+  public async Task RunIteration_WhenSessionBecomesEligibleDuringGrace_DoesNotStopRegisteredClient()
+  {
+    var watcher = CreateWatcher(connectorOwnsLifecycle: true);
+    var desktopClients = new[]
+    {
+      new DesktopSession { ProcessId = 101, SystemSessionId = 5 },
+    };
+
+    await watcher.RunIteration([], desktopClients, CancellationToken.None);
+    _timeProvider.Advance(
+      DesktopClientWatcherWin.IneligibleSessionGracePeriod + TimeSpan.FromSeconds(1));
+
+    await watcher.RunIteration(
+      [new DesktopSession { SystemSessionId = 5, Username = "test-user" }],
+      desktopClients,
+      CancellationToken.None);
+    await watcher.RunIteration([], desktopClients, CancellationToken.None);
+
+    _ipcServerStore.Verify(
+      x => x.TryRemove(It.IsAny<int>(), out It.Ref<IpcServerRecord?>.IsAny),
+      Times.Never);
+  }
+
+  [Fact]
   public async Task RunIteration_WhenPendingLaunchIsWithinGrace_DoesNotLaunchReplacement()
   {
     IProcess? startedProcess = null;
@@ -369,6 +527,7 @@ public class DesktopClientWatcherWinTests
 
   private DesktopClientWatcherWin CreateWatcher(
     string instanceId = "instance-1",
+    bool connectorOwnsLifecycle = false,
     IDesktopClientRepairCoordinator? repairCoordinator = null,
     IDesktopClientLaunchTracker? launchTracker = null)
   {
@@ -412,6 +571,10 @@ public class DesktopClientWatcherWinTests
       launchTracker,
       _waiter.Object,
       _pathProvider.Object,
+      Options.Create(new StableStationAssistanceGateOptions
+      {
+        ConnectorOwnsLifecycle = connectorOwnsLifecycle,
+      }),
       _logger.Object);
   }
 }
