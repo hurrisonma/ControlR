@@ -81,3 +81,29 @@ Docker images are published to Docker Hub:
 - `bitbound/controlr-relay:preview` - Preview relay server
 - `bitbound/controlr-relay:latest` - Production relay server
 - `bitbound/controlr-relay:[version]` - Specific version of relay server
+
+## StableStation GHCR Image
+
+The `publish-stablestation-ghcr.yml` workflow is a fork-specific publisher for the
+isolated StableStation remote-assistance subsystem. It can be started manually after the workflow is
+on the default branch, or by pushing a controlled
+`stablestation-image-vX.Y.Z.W` tag whose version has four numeric components.
+
+- It builds `linux/amd64` plus an unsigned Windows x64 Connector-managed runtime
+  bundle containing Agent and DesktopClient from the exact selected Git revision.
+- It does not publish a standalone ControlR installer; StableStation Connector owns
+  Windows installation, service lifecycle, and upgrades.
+- It requires an explicit four-component numeric ControlR version.
+- It publishes only the immutable
+  `ghcr.io/hurrisonma/controlr-server:sha-<full-commit-sha>` tag.
+- The workflow summary prints the registry digest that StableStation must pin.
+- It uses the repository `GITHUB_TOKEN`; no Docker Hub credentials are required.
+- It publishes SBOM and provenance attestations with the image.
+- It uploads the Windows x64 runtime downloads as a 90-day workflow artifact and
+  embeds the same files in the Server image under `/downloads/win-x64`.
+
+The Windows files are intentionally unsigned because this fork does not own the
+upstream project's Azure signing identity. They are suitable for controlled internal
+validation only. Production rollout still requires a StableStation code-signing
+identity; the capability boundary, Local Gate, generation fencing, and session
+revocation controls are included in these artifacts.

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using ControlR.Web.Server.Data.Enums;
 using Microsoft.AspNetCore.Authentication;
 using ControlR.Web.Server.Services.LogonTokens;
 
@@ -52,15 +53,52 @@ public class LogonTokenAuthenticationHandler(
       return AuthenticateResult.Fail("User not found for logon token.");
     }
 
+    if (user.AccountType == AccountType.ExternalUser && tokenValidation.Capability is null)
+    {
+      return AuthenticateResult.Fail("External logon token capability is required.");
+    }
+
+    if (string.IsNullOrWhiteSpace(user.Email))
+    {
+      return AuthenticateResult.Fail("Email is required for logon token.");
+    }
+
     var claims = new List<Claim>
     {
       new(UserClaimTypes.UserId, user.Id.ToString()),
       new(UserClaimTypes.TenantId, user.TenantId.ToString()),
       new(ClaimTypes.NameIdentifier, user.Id.ToString()),
       new(ClaimTypes.Name, user.UserName ?? "User"),
+      new(ClaimTypes.Email, user.Email),
       new(UserClaimTypes.AuthenticationMethod, LogonTokenAuthenticationSchemeOptions.DefaultScheme),
       new(UserClaimTypes.DeviceSessionScope, deviceId.ToString()),
     };
+
+    if (tokenValidation.Capability.HasValue)
+    {
+      claims.Add(new(UserClaimTypes.SessionCapability, tokenValidation.Capability.Value.ToString()));
+    }
+
+    if (tokenValidation.AssistanceAuthorizationId.HasValue)
+    {
+      claims.Add(new(
+        UserClaimTypes.AssistanceAuthorizationId,
+        tokenValidation.AssistanceAuthorizationId.Value.ToString()));
+    }
+
+    if (tokenValidation.AssistanceConnectorInstanceId.HasValue)
+    {
+      claims.Add(new(
+        UserClaimTypes.AssistanceConnectorInstanceId,
+        tokenValidation.AssistanceConnectorInstanceId.Value.ToString()));
+    }
+
+    if (tokenValidation.AssistanceEnableGeneration.HasValue)
+    {
+      claims.Add(new(
+        UserClaimTypes.AssistanceEnableGeneration,
+        tokenValidation.AssistanceEnableGeneration.Value.ToString()));
+    }
 
     if (!string.IsNullOrWhiteSpace(tokenValidation.SessionCorrelationId))
     {

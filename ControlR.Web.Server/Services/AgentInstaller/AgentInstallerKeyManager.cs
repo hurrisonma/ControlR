@@ -56,7 +56,7 @@ public class AgentInstallerKeyManager(
     var hashedKey = _passwordHasher.HashPassword(string.Empty, plaintextKey);
 
     var effectiveExpiration = keyType == InstallerKeyType.UsageBased
-      ? _timeProvider.GetUtcNow() + TimeSpan.FromHours(24)
+      ? expiration ?? _timeProvider.GetUtcNow() + TimeSpan.FromHours(24)
       : expiration;
 
     var installerKey = new AgentInstallerKey

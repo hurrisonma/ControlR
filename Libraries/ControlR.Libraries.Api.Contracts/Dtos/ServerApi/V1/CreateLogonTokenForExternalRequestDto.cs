@@ -7,6 +7,8 @@ public record CreateLogonTokenForExternalRequestDto(
   Guid TenantId,
   [property: StringLength(252)]
   string UserCorrelationId,
+  [property: Required]
+  LogonTokenCapability? Capability,
   [property: StringLength(50)]
   string? UserDisplayName = null,
   [property: StringLength(128)]

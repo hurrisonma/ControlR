@@ -1,0 +1,405 @@
+name: Publish StableStation Remote Assistance
+run-name: Publish StableStation Remote Assistance ${{ github.sha }}
+
+on:
+  push:
+    tags:
+      - "stablestation-image-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Numeric ControlR version, for example 0.27.6.0
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-stablestation-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ImageRepository: ghcr.io/hurrisonma/controlr-server
+
+jobs:
+  resolve-version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.version.outputs.value }}
+
+    steps:
+      - name: Resolve and validate version
+        id: version
+        shell: bash
+        env:
+          DispatchVersion: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          ControlRVersion="$DispatchVersion"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            ControlRVersion="${GITHUB_REF_NAME#stablestation-image-v}"
+          fi
+          if [[ ! "$ControlRVersion" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must contain four numeric components, for example 0.27.6.0"
+            exit 1
+          fi
+          echo "value=$ControlRVersion" >> "$GITHUB_OUTPUT"
+
+  build-windows-client:
+    name: Build unsigned Windows x64 client
+    runs-on: windows-latest
+    timeout-minutes: 90
+    needs: resolve-version
+
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: recursive
+          # Upstream contains a historical release-note filename with `?`, which
+          # cannot be materialized by the Windows filesystem and is not needed
+          # to build the client binaries.
+          sparse-checkout: |
+            /*
+            !/.release-notes/
+          sparse-checkout-cone-mode: false
+
+      - name: Set up .NET
+        uses: ./.github/actions/setup-dotnet
+
+      - name: Publish DesktopClient
+        shell: pwsh
+        run: |
+          dotnet publish .\ControlR.DesktopClient\ControlR.DesktopClient.csproj `
+            --configuration Release `
+            --framework net10.0-windows8.0 `
+            --runtime win-x64 `
+            --self-contained true `
+            --output "$env:RUNNER_TEMP\desktop-client" `
+            -p:Version=${{ needs.resolve-version.outputs.value }} `
+            -p:FileVersion=${{ needs.resolve-version.outputs.value }}
+
+      - name: Publish Agent
+        shell: pwsh
+        run: |
+          dotnet publish .\ControlR.Agent\ControlR.Agent.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --output "$env:RUNNER_TEMP\agent" `
+            -p:PublishSingleFile=true `
+            -p:UseAppHost=true `
+            -p:IncludeAllContentForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:IncludeAppSettingsInSingleFile=true `
+            -p:DebugType=none `
+            -p:BundleSigningEnabled=false `
+            -p:Version=${{ needs.resolve-version.outputs.value }} `
+            -p:FileVersion=${{ needs.resolve-version.outputs.value }}
+
+      - name: Package and verify Connector-managed runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $downloads = Join-Path $env:RUNNER_TEMP 'downloads'
+          $bundle = Join-Path $env:RUNNER_TEMP 'bundle'
+          $desktop = Join-Path $bundle 'DesktopClient'
+          New-Item -Path $downloads, $desktop -ItemType Directory -Force | Out-Null
+
+          $agent = Join-Path $env:RUNNER_TEMP 'agent\ControlR.Agent.exe'
+          if (-not (Test-Path $agent -PathType Leaf)) { throw "Agent executable is missing: $agent" }
+
+          Copy-Item $agent (Join-Path $bundle 'ControlR.Agent.exe') -Force
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'desktop-client\*') $desktop -Recurse -Force
+          Copy-Item .\LICENSE.txt (Join-Path $bundle 'ControlR-LICENSE.txt') -Force
+
+          $runtimeManifest = [ordered]@{
+            schema = "stablestation.controlr.windows-runtime.v1"
+            version = "${{ needs.resolve-version.outputs.value }}"
+            sourceRevision = "${{ github.sha }}"
+            platform = "win-x64"
+            lifecycleOwner = "ss-trading-connector"
+            entrypoint = "ControlR.Agent.exe"
+            serviceArguments = @("run")
+            standaloneInstaller = $false
+          }
+          $runtimeManifestPath = Join-Path $bundle 'stablestation-runtime-manifest.json'
+          $runtimeManifest | ConvertTo-Json -Depth 4 |
+            Set-Content $runtimeManifestPath -Encoding utf8NoBOM
+          Copy-Item $runtimeManifestPath $downloads -Force
+          Compress-Archive -Path (Join-Path $bundle '*') `
+            -DestinationPath (Join-Path $downloads 'ControlR.Agent.bundle.zip') -Force
+
+          $manifest = Get-ChildItem $downloads -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$($_.Name)"
+          }
+          $manifest | Set-Content (Join-Path $downloads 'SHA256SUMS.txt') -Encoding ascii
+
+          if ((Get-Item (Join-Path $downloads 'ControlR.Agent.bundle.zip')).Length -le 0) {
+            throw 'Agent bundle is empty.'
+          }
+
+      - name: Upload Windows client artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: stablestation-controlr-win-x64-${{ github.sha }}
+          path: ${{ runner.temp }}\downloads\
+          if-no-files-found: error
+          retention-days: 1
+
+  validate:
+    name: Build and test StableStation extensions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Set up .NET
+        uses: ./.github/actions/setup-dotnet
+
+      - name: Build Agent tests
+        run: dotnet build Tests/ControlR.Agent.Common.Tests/ControlR.Agent.Common.Tests.csproj --verbosity quiet
+
+      - name: Run Agent tests
+        run: dotnet run --project Tests/ControlR.Agent.Common.Tests/ControlR.Agent.Common.Tests.csproj --no-build
+
+      - name: Build Server tests
+        run: dotnet build Tests/ControlR.Web.Server.Tests/ControlR.Web.Server.Tests.csproj --verbosity quiet
+
+      - name: Run Server tests
+        run: dotnet run --project Tests/ControlR.Web.Server.Tests/ControlR.Web.Server.Tests.csproj --no-build
+
+  publish:
+    name: Build and publish immutable image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: [resolve-version, build-windows-client, validate]
+
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Download Windows client into server image
+        uses: actions/download-artifact@v8
+        with:
+          name: stablestation-controlr-win-x64-${{ github.sha }}
+          path: ControlR.Web.Server/wwwroot/downloads/win-x64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish server image
+        id: publish
+        uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: .
+          file: .github/docker/stablestation-server.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.ImageRepository }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=StableStation ControlR Server
+            org.opencontainers.image.description=StableStation isolated remote assistance server image
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.resolve-version.outputs.value }}
+          build-args: |
+            CONTROLR_VERSION=${{ needs.resolve-version.outputs.value }}
+          cache-from: type=gha,scope=stablestation-controlr-server
+          cache-to: type=gha,mode=max,scope=stablestation-controlr-server
+          provenance: mode=max
+          sbom: true
+
+      - name: Publish immutable image coordinates
+        shell: bash
+        env:
+          ImageDigest: ${{ steps.publish.outputs.digest }}
+          ImageTag: ${{ env.ImageRepository }}:sha-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ImageDigest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::build did not return a valid image digest"
+            exit 1
+          fi
+          {
+            echo "## StableStation ControlR Server Image"
+            echo
+            echo "- Tag: \`$ImageTag\`"
+            echo "- Digest: \`$ImageDigest\`"
+            echo "- Deploy as: \`${ImageRepository}@${ImageDigest}\`"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo
+            echo "This image contains the StableStation RemoteDesktopOnly authorization, generation fencing, revoke/disconnect enforcement, and the matching unsigned Windows x64 Connector-managed runtime bundle."
+            echo
+            echo "The Windows runtime is an unsigned internal-test artifact. Production rollout requires an approved code-signing identity."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-runtime-release:
+    name: Publish immutable Windows runtime release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [resolve-version, build-windows-client, validate, publish]
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download exact Windows runtime artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: stablestation-controlr-win-x64-${{ github.sha }}
+          path: release-assets
+
+      - name: Verify runtime release assets
+        shell: bash
+        env:
+          ControlRVersion: ${{ needs.resolve-version.outputs.value }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+
+          mapfile -t ActualFiles < <(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          ExpectedFiles=(
+            "ControlR.Agent.bundle.zip"
+            "SHA256SUMS.txt"
+            "stablestation-runtime-manifest.json"
+          )
+          if [[ "${ActualFiles[*]}" != "${ExpectedFiles[*]}" ]]; then
+            echo "::error::runtime artifact contains an unexpected file set: ${ActualFiles[*]}"
+            exit 1
+          fi
+
+          sha256sum --check SHA256SUMS.txt
+          jq --exit-status \
+            --arg version "$ControlRVersion" \
+            --arg revision "$GITHUB_SHA" \
+            '
+              .schema == "stablestation.controlr.windows-runtime.v1" and
+              .version == $version and
+              .sourceRevision == $revision and
+              .platform == "win-x64" and
+              .lifecycleOwner == "ss-trading-connector" and
+              .entrypoint == "ControlR.Agent.exe" and
+              .serviceArguments == ["run"] and
+              .standaloneInstaller == false
+            ' \
+            stablestation-runtime-manifest.json >/dev/null
+
+          unzip -t ControlR.Agent.bundle.zip >/dev/null
+          mapfile -t BundleEntries < <(unzip -Z1 ControlR.Agent.bundle.zip)
+          if ! printf '%s\n' "${BundleEntries[@]}" | grep --fixed-strings --line-regexp --quiet "ControlR.Agent.exe"; then
+            echo "::error::runtime bundle does not contain ControlR.Agent.exe"
+            exit 1
+          fi
+          if ! printf '%s\n' "${BundleEntries[@]}" | grep --fixed-strings --line-regexp --quiet "stablestation-runtime-manifest.json"; then
+            echo "::error::runtime bundle does not contain its runtime manifest"
+            exit 1
+          fi
+          if printf '%s\n' "${BundleEntries[@]}" | grep --extended-regexp --quiet '(^|/)ControlR\.Agent\.Installer\.exe$'; then
+            echo "::error::standalone ControlR installer must not be published"
+            exit 1
+          fi
+
+      - name: Create immutable component release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ControlRVersion: ${{ needs.resolve-version.outputs.value }}
+        run: |
+          set -euo pipefail
+          ReleaseTag="stablestation-runtime-v${ControlRVersion}-${GITHUB_SHA}"
+
+          if gh release view "$ReleaseTag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::release already exists and will not be modified: $ReleaseTag"
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${ReleaseTag}" >/dev/null 2>&1; then
+            echo "::error::tag already exists and will not be moved: $ReleaseTag"
+            exit 1
+          fi
+
+          ReleaseNotes="$(
+            printf '%s\n' \
+              "Connector-managed unsigned Windows x64 runtime for StableStation Remote Assistance." \
+              "" \
+              "- Source commit: \`${GITHUB_SHA}\`" \
+              "- Lifecycle owner: \`ss-trading-connector\`" \
+              "- Standalone installer: \`false\`" \
+              "" \
+              "This component is consumed by the existing StableStation Connector packaging pipeline. It is not a separate ControlR installer."
+          )"
+          gh release create "$ReleaseTag" \
+            release-assets/ControlR.Agent.bundle.zip \
+            release-assets/stablestation-runtime-manifest.json \
+            release-assets/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "StableStation ControlR Runtime ${ControlRVersion} (${GITHUB_SHA})" \
+            --notes "$ReleaseNotes" \
+            --prerelease
+
+          {
+            echo "## StableStation Connector-managed Windows Runtime"
+            echo
+            echo "- Release: \`$ReleaseTag\`"
+            echo "- Source commit: \`$GITHUB_SHA\`"
+            echo "- Assets: \`ControlR.Agent.bundle.zip\`, \`stablestation-runtime-manifest.json\`, \`SHA256SUMS.txt\`"
+            echo "- Standalone installer: \`false\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup-runtime-artifact:
+    name: Delete temporary Windows runtime artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [build-windows-client, publish-runtime-release]
+    if: ${{ always() && needs.build-windows-client.result == 'success' }}
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Delete exact workflow handoff artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ArtifactName: stablestation-controlr-win-x64-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ArtifactIds="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+              --jq ".artifacts[] | select(.name == \"$ArtifactName\") | .id"
+          )"
+          if [[ -z "$ArtifactIds" ]]; then
+            echo "Temporary runtime artifact was already absent."
+            exit 0
+          fi
+
+          for ArtifactId in $ArtifactIds; do
+            gh api --method DELETE \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ArtifactId}"
+          done
+          echo "Deleted temporary workflow artifact: $ArtifactName"

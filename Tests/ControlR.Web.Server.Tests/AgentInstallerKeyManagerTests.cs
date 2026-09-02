@@ -42,6 +42,23 @@ public class AgentInstallerKeyManagerTests(ITestOutputHelper testOutput) : IAsyn
   }
 
   [Fact]
+  public async Task CreateKey_UsageBased_WithExplicitExpiration_PreservesShorterWindow()
+  {
+    var expiration = _timeProvider.GetUtcNow().AddMinutes(10);
+
+    var dto = await _keyManager.CreateKey(
+      tenantId: _tenantId,
+      creatorId: _creatorId,
+      creatorKind: CreatorKind.ServerServiceAccount,
+      keyType: InstallerKeyType.UsageBased,
+      allowedUses: 1,
+      expiration: expiration,
+      friendlyName: "StableStation enrollment");
+
+    Assert.Equal(expiration, dto.Expiration);
+  }
+
+  [Fact]
   public async Task DeleteKey_ByAdmin_Succeeds()
   {
     var otherUser = await _testApp.Services.CreateTestUser(_tenantId, email: $"other-{Guid.NewGuid():N}@test.local");

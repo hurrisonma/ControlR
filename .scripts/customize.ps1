@@ -312,7 +312,7 @@ if ($Version) {
   Write-Host "Using specified version: $Version" -ForegroundColor Green
 }
 else {
-  $latestTag = git -C $repoRoot describe --tags --abbrev=0 2>$null
+  $latestTag = git -C $repoRoot describe --tags --abbrev=0 --match "v[0-9]*" 2>$null
   if (!$latestTag) {
     throw "Failed to get latest git tag for version. Please specify a version using the -Version parameter (e.g. '1.2.3.4')."
   }

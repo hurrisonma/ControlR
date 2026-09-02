@@ -40,6 +40,7 @@ public class LogonTokenPasswordLoginPreventionTests(ITestOutputHelper testOutput
       Guid.NewGuid(),
       tenant.Id,
       userCorrelationId,
+      LogonTokenCapability.RemoteDesktop,
       cancellationToken: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
@@ -72,6 +73,7 @@ public class LogonTokenPasswordLoginPreventionTests(ITestOutputHelper testOutput
         Guid.NewGuid(),
         tenant.Id,
         userCorrelationId,
+        LogonTokenCapability.RemoteDesktop,
         cancellationToken: TestContext.Current.CancellationToken);
 
     Assert.True(createResult.IsSuccess);
@@ -111,6 +113,7 @@ public class LogonTokenPasswordLoginPreventionTests(ITestOutputHelper testOutput
         Guid.NewGuid(),
         tenant.Id,
         userCorrelationId,
+        LogonTokenCapability.RemoteDesktop,
         cancellationToken: TestContext.Current.CancellationToken);
 
     Assert.True(createResult.IsSuccess);
@@ -149,6 +152,7 @@ public class LogonTokenPasswordLoginPreventionTests(ITestOutputHelper testOutput
         Guid.NewGuid(),
         tenant.Id,
         userCorrelationId,
+        LogonTokenCapability.RemoteDesktop,
         cancellationToken: TestContext.Current.CancellationToken);
 
     Assert.True(createResult.IsSuccess);

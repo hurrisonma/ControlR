@@ -388,14 +388,17 @@ public unsafe partial class Win32Interop(ILogger<Win32Interop> logger) : IWin32I
   {
     var sessions = new List<DesktopSession>();
     var consoleSessionId = PInvoke.WTSGetActiveConsoleSessionId();
-    sessions.Add(new DesktopSession
+    if (consoleSessionId != uint.MaxValue)
     {
-      SystemSessionId = (int)consoleSessionId,
-      Type = DesktopSessionType.Console,
-      Name = "Console",
-      Username = GetUsernameFromSessionId(consoleSessionId),
-      DesktopName = ResolveDesktopName(consoleSessionId)
-    });
+      sessions.Add(new DesktopSession
+      {
+        SystemSessionId = (int)consoleSessionId,
+        Type = DesktopSessionType.Console,
+        Name = "Console",
+        Username = GetUsernameFromSessionId(consoleSessionId),
+        DesktopName = ResolveDesktopName(consoleSessionId)
+      });
+    }
 
     var ppSessionInfo = nint.Zero;
     var count = 0;
@@ -443,13 +446,16 @@ public unsafe partial class Win32Interop(ILogger<Win32Interop> logger) : IWin32I
     var sessions = new List<DesktopSession>();
 
     var consoleSessionId = PInvoke.WTSGetActiveConsoleSessionId();
-    sessions.Add(new DesktopSession
+    if (consoleSessionId != uint.MaxValue)
     {
-      SystemSessionId = (int)consoleSessionId,
-      Type = DesktopSessionType.Console,
-      Name = "Console",
-      Username = GetUsernameFromSessionId(consoleSessionId)
-    });
+      sessions.Add(new DesktopSession
+      {
+        SystemSessionId = (int)consoleSessionId,
+        Type = DesktopSessionType.Console,
+        Name = "Console",
+        Username = GetUsernameFromSessionId(consoleSessionId)
+      });
+    }
 
     var enumSessionResult = PInvoke.WTSEnumerateSessions(
       HANDLE.WTS_CURRENT_SERVER_HANDLE,

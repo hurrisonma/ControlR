@@ -26,6 +26,7 @@ using ControlR.Libraries.DataRedaction;
 using ControlR.Libraries.Hosting;
 using ControlR.Libraries.Serilog;
 using ControlR.Libraries.Shared.Services.FileSystem;
+using ControlR.Agent.Common.Configuration;
 
 namespace ControlR.Agent.Common.Startup;
 
@@ -76,25 +77,59 @@ internal static class HostApplicationBuilderExtensions
       .AddOptions<InstanceOptions>()
       .Bind(configuration.GetSection(InstanceOptions.SectionKey));
 
+    services
+      .AddOptions<StableStationAssistanceGateOptions>()
+      .Bind(configuration.GetSection(StableStationAssistanceGateOptions.SectionKey));
+
     var pathProvider = GetTempPathProvider(builder);
 
     if (loadAppSettings)
     {
       builder.Configuration.AddJsonFile(pathProvider.GetAgentAppSettingsPath(), true, true);
+      if (OperatingSystem.IsWindows())
+      {
+        var commonApplicationData = Environment.GetFolderPath(
+          Environment.SpecialFolder.CommonApplicationData);
+        if (!string.IsNullOrWhiteSpace(commonApplicationData))
+        {
+          var stableStationManagedConfig = Path.Combine(
+            commonApplicationData,
+            "StableStation",
+            "RemoteAssistance",
+            "agent.managed.json");
+          builder.Configuration.AddJsonFile(
+            stableStationManagedConfig,
+            optional: true,
+            reloadOnChange: true);
+        }
+      }
     }
 
     var appOptions = builder.Configuration
       .GetSection(AgentAppOptions.SectionKey)
       .Get<AgentAppOptions>() ?? new AgentAppOptions();
-
-    services.AddHttpClient<IDownloadsApi, DownloadsApi>(ConfigureHttpClient);
-    services.AddControlrApiClient(options =>
+    var assistanceGateOptions = builder.Configuration
+      .GetSection(StableStationAssistanceGateOptions.SectionKey)
+      .Get<StableStationAssistanceGateOptions>() ?? new StableStationAssistanceGateOptions();
+    var connectorManagedBootstrap =
+      OperatingSystem.IsWindows() &&
+      assistanceGateOptions.Enabled &&
+      assistanceGateOptions.ConnectorOwnsLifecycle;
+    var apiBaseUri = appOptions.ServerUri;
+    if (apiBaseUri is null)
     {
-      if (appOptions.ServerUri is null)
+      if (!connectorManagedBootstrap)
       {
         throw new ArgumentException("ServerUri must be provided in configuration or app settings.");
       }
-      options.BaseUrl = appOptions.ServerUri;
+      apiBaseUri = new Uri("http://127.0.0.1:1");
+    }
+
+    services.AddHttpClient<IDownloadsApi, DownloadsApi>(ConfigureHttpClient);
+    services.AddHttpClient();
+    services.AddControlrApiClient(options =>
+    {
+      options.BaseUrl = apiBaseUri;
     });
 
     builder.Services.AddStarRedactor();
@@ -120,6 +155,9 @@ internal static class HostApplicationBuilderExtensions
     services.AddSingleton<IIpcServerStore, IpcServerStore>();
     services.AddSingleton<IIpcClientAuthenticator, IpcClientAuthenticator>();
     services.AddSingleton<IAgentHeartbeatTimer, AgentHeartbeatTimer>();
+    services.AddSingleton<IStableStationAssistanceGate, StableStationAssistanceGate>();
+    services.AddSingleton<IStableStationAgentEnrollmentClient, StableStationAgentEnrollmentClient>();
+    services.AddSingleton<IStableStationAgentProvisioner, StableStationAgentProvisioner>();
     services.AddControlrIpcServer<AgentRpcService>();
     services.AddStronglyTypedSignalrClient<IAgentHub, IAgentHubClient, AgentHubClient>(ServiceLifetime.Singleton);
 
@@ -165,13 +203,14 @@ internal static class HostApplicationBuilderExtensions
       services.AddHostedService<DotnetExtractDirectoryCleanupHostedService>();
       services.AddHostedService(s => s.GetRequiredService<IAgentMaintenanceService>());
       services.AddHostedService<IpcServerWatcher>();
+      services.AddHostedService<StableStationAssistanceGateServer>();
+      services.AddHostedService<StableStationAssistanceGateSessionTerminator>();
       services.AddHostedService<HubConnectionInitializer>();
       services.AddHostedService(x => x.GetRequiredService<IAgentHeartbeatTimer>());
       services.AddHostedService<MessageHandler>();
       services.AddHostedService<HostLifetimeEventResponder>();
       services.AddHostedService(s => s.GetRequiredService<ICpuUtilizationSampler>());
       services.AddHostedService<FilePermissionsEnforcer>();
-
       if (OperatingSystem.IsWindowsVersionAtLeast(8))
       {
         services.AddSingleton<IDesktopClientLaunchTracker, DesktopClientLaunchTracker>();

@@ -24,6 +24,35 @@ namespace ControlR.Agent.Common.Tests;
 public class AgentHubClientPermissionPreflightTests
 {
   [Fact]
+  public async Task CreateTerminalSession_FailsBeforeCreatingProcess_WhenLocalGateIsDenied()
+  {
+    var gate = new Mock<IStableStationAssistanceGate>();
+    var gateReason = "Remote assistance is not enabled by the local Connector.";
+    gate
+      .Setup(x => x.IsAllowed(
+        It.IsAny<Guid?>(),
+        It.IsAny<Guid?>(),
+        It.IsAny<long?>(),
+        out gateReason))
+      .Returns(false);
+    var terminalStore = new Mock<ITerminalStore>(MockBehavior.Strict);
+    var sut = CreateSut(
+      Mock.Of<IIpcServerStore>(),
+      gate.Object,
+      terminalStore.Object);
+
+    var result = await sut.CreateTerminalSession(new TerminalSessionRequestDto(
+      Guid.NewGuid(),
+      "viewer-1"));
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal(gateReason, result.Reason);
+    terminalStore.Verify(
+      x => x.CreateSession(It.IsAny<Guid>(), It.IsAny<string>()),
+      Times.Never);
+  }
+
+  [Fact]
   public async Task CreateRemoteControlSession_FailsBeforeForwarding_WhenPreflightIsDenied()
   {
     var targetProcessId = 4242;
@@ -105,16 +134,23 @@ public class AgentHubClientPermissionPreflightTests
     return serverStore;
   }
 
-  private static AgentHubClient CreateSut(IIpcServerStore serverStore)
+  private static AgentHubClient CreateSut(
+    IIpcServerStore serverStore,
+    IStableStationAssistanceGate? assistanceGate = null,
+    ITerminalStore? terminalStore = null)
   {
     var systemEnvironment = new Mock<ISystemEnvironment>();
     systemEnvironment.SetupGet(x => x.IsDebug).Returns(true);
+    var gate = new Mock<IStableStationAssistanceGate>();
+    var gateReason = string.Empty;
+    gate.Setup(x => x.IsAllowed(It.IsAny<RemoteControlSessionRequestDto>(), out gateReason))
+      .Returns(true);
 
     return new AgentHubClient(
       Mock.Of<IHubConnection<IAgentHub>>(),
       systemEnvironment.Object,
       Mock.Of<IMessenger>(),
-      Mock.Of<ITerminalStore>(),
+      terminalStore ?? Mock.Of<ITerminalStore>(),
       Mock.Of<IDesktopSessionProvider>(),
       serverStore,
       Mock.Of<IDesktopClientFileVerifier>(),
@@ -131,6 +167,7 @@ public class AgentHubClientPermissionPreflightTests
       Mock.Of<IAgentMaintenanceService>(),
       Mock.Of<IWakeOnLanService>(),
       Mock.Of<IAgentHeartbeatTimer>(),
+      assistanceGate ?? gate.Object,
       Mock.Of<IRetryer>(),
       Mock.Of<ILogger<AgentHubClient>>());
   }

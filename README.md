@@ -6,6 +6,11 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/bitbound/ControlR)
 [![Discord](https://img.shields.io/discord/1245426111903699087?label=Discord&logo=discord&logoColor=white&color=7289DA)](https://discord.gg/JWJmMPc72H)
 
+> **StableStation fork:** the `codex/remote-assistance-foundation` branch adds a
+> RemoteDesktop-and-Terminal authorization path and a mandatory Connector-controlled local gate.
+> It is deployed only through StableStation's isolated ControlR topology. See
+> [STABLESTATION_REMOTE_ASSISTANCE.md](./STABLESTATION_REMOTE_ASSISTANCE.md).
+
 Website: https://controlr.app  
 Demo Server: https://demo.controlr.app  (West US)  
 Docker: https://hub.docker.com/r/bitbound/controlr  

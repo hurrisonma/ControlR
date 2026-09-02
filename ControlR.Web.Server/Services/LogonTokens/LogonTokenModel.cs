@@ -5,6 +5,10 @@ public class LogonTokenModel
 {
   private int _consumed;
 
+  public Guid? AssistanceAuthorizationId { get; set; }
+  public Guid? AssistanceConnectorInstanceId { get; set; }
+  public long? AssistanceEnableGeneration { get; set; }
+  public LogonTokenCapability? Capability { get; set; }
   public required DateTimeOffset CreatedAt { get; set; }
   public required Guid DeviceId { get; set; }
   public required DateTimeOffset ExpiresAt { get; set; }

@@ -14,7 +14,7 @@ public interface IAgentHubClient : IHubClient
   Task CloseTerminalSession(Guid terminalSessionId);
   Task<HubResult> CreateDirectory(CreateDirectoryHubDto dto);
   Task<HubResult> CreateRemoteControlSession(RemoteControlSessionRequestDto dto);
-  Task<HubResult> CreateTerminalSession(Guid terminalSessionId, string viewerConnectionId);
+  Task<HubResult> CreateTerminalSession(TerminalSessionRequestDto request);
   Task<HubResult> CreateVncSession(VncSessionRequestDto sessionRequestDto);
   Task<HubResult> DeleteFile(FileDeleteHubDto dto);
   Task<HubResult> DownloadFileFromViewer(FileUploadHubDto dto);

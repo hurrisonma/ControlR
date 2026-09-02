@@ -11,4 +11,7 @@ public record PwshCompletionsRequestDto(
   int PageSize = PwshCompletionsRequestDto.DefaultPageSize)
 {
   public const int DefaultPageSize = 50;
+  public Guid? AssistanceAuthorizationId { get; init; }
+  public Guid? AssistanceConnectorInstanceId { get; init; }
+  public long? AssistanceEnableGeneration { get; init; }
 }

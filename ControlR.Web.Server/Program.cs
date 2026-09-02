@@ -82,6 +82,8 @@ app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<RequirePasswordChangeMiddleware>();
+app.UseMiddleware<StableStationServiceAccountHttpGuardMiddleware>();
+app.UseMiddleware<RemoteDesktopCapabilityHttpGuardMiddleware>();
 app.UseAuthorization();
 app.UseAntiforgery();
 

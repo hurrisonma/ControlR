@@ -1,5 +1,6 @@
 using ControlR.Agent.Shared.Options;
 using ControlR.Agent.Shared.Services;
+using ControlR.Agent.Common.Configuration;
 using ControlR.Agent.Common.Services;
 using ControlR.ApiClient;
 using ControlR.ApiClient.Interfaces.Agent;
@@ -102,6 +103,28 @@ public class AgentMaintenanceServiceTests
     Assert.Equal(
       "launchctl kickstart -k system/app.controlr.agent.installer.instance-1",
       string.Join(" ", launchctlStartInfos[2].ArgumentList));
+  }
+
+  [Fact]
+  public async Task CheckForUpdate_WhenConnectorOwnsLifecycle_SkipsForcedUpdate()
+  {
+    var fixture = new AgentMaintenanceServiceFixture
+    {
+      ConnectorOwnsLifecycle = true
+    };
+    var updater = fixture.CreateMaintenanceService();
+
+    await updater.CheckForUpdate(force: true, cancellationToken: TestContext.Current.CancellationToken);
+
+    fixture.AgentUpdateApi.Verify(
+      x => x.GetBundleMetadata(It.IsAny<RuntimeId>(), It.IsAny<CancellationToken>()),
+      Times.Never);
+    fixture.DownloadsApi.Verify(
+      x => x.DownloadFile(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+      Times.Never);
+    fixture.ProcessManager.Verify(
+      x => x.Start(It.IsAny<string>(), It.IsAny<string>()),
+      Times.Never);
   }
 
   [Fact]
@@ -307,6 +330,7 @@ public class AgentMaintenanceServiceTests
 
     public Mock<IAgentUpdateApi> AgentUpdateApi { get; } = new();
     public string BundleHashPath { get; } = @"C:\ControlR\.controlr-bundle.sha256";
+    public bool ConnectorOwnsLifecycle { get; init; }
     public Mock<IControlrApi> ControlrApi { get; } = new();
     public Mock<IDownloadsApi> DownloadsApi { get; } = new();
     public FakeFileSystem FileSystem { get; } = new('\\');
@@ -329,6 +353,10 @@ public class AgentMaintenanceServiceTests
         SettingsProvider.Object,
         HostApplicationLifetime.Object,
         Options.Create(new InstanceOptions { InstanceId = "instance-1" }),
+        Options.Create(new StableStationAssistanceGateOptions
+        {
+          ConnectorOwnsLifecycle = ConnectorOwnsLifecycle
+        }),
         NullLogger<AgentMaintenanceService>.Instance);
     }
 

@@ -33,6 +33,7 @@ internal sealed class DesktopClientLaunchTracker(
     {
       if (_trackedLaunches.TryRemove(kvp.Key, out var removedState))
       {
+        TryStopProcess(removedState.Process, removedState.ProcessId, removedState.SessionId);
         removedState.Dispose();
       }
     }
@@ -84,7 +85,8 @@ internal sealed class DesktopClientLaunchTracker(
       {
         Remove(
           launchState.SessionId,
-          $"Tracked launch is no longer needed because session {launchState.SessionId} is no longer active.");
+          $"Tracked launch is no longer needed because session {launchState.SessionId} is no longer active.",
+          stopProcess: true);
         continue;
       }
 
@@ -93,7 +95,8 @@ internal sealed class DesktopClientLaunchTracker(
         Remove(
           launchState.SessionId,
           $"IPC registration observed for tracked desktop client launch. Session: {launchState.SessionId}, " +
-          $"Tracked PID: {launchState.ProcessId}, Registered PID: {registeredSession.ProcessId}");
+          $"Tracked PID: {launchState.ProcessId}, Registered PID: {registeredSession.ProcessId}",
+          stopProcess: registeredSession.ProcessId != launchState.ProcessId);
         continue;
       }
 
@@ -102,7 +105,8 @@ internal sealed class DesktopClientLaunchTracker(
         Remove(
           launchState.SessionId,
           $"Tracked desktop client exited before IPC registration completed. " +
-          $"Session: {launchState.SessionId}, PID: {launchState.ProcessId}");
+          $"Session: {launchState.SessionId}, PID: {launchState.ProcessId}",
+          stopProcess: false);
         continue;
       }
 
@@ -111,7 +115,8 @@ internal sealed class DesktopClientLaunchTracker(
         Remove(
           launchState.SessionId,
           $"Removing tracked launch for session {launchState.SessionId} because the process session could not be determined. " +
-          $"Tracked PID: {launchState.ProcessId}");
+          $"Tracked PID: {launchState.ProcessId}",
+          stopProcess: true);
         continue;
       }
 
@@ -120,7 +125,8 @@ internal sealed class DesktopClientLaunchTracker(
         Remove(
           launchState.SessionId,
           $"Removing stale tracked launch for session {launchState.SessionId}. " +
-          $"Tracked PID: {launchState.ProcessId}, Process session: {processSessionId}");
+          $"Tracked PID: {launchState.ProcessId}, Process session: {processSessionId}",
+          stopProcess: true);
         continue;
       }
 
@@ -133,7 +139,8 @@ internal sealed class DesktopClientLaunchTracker(
       Remove(
         launchState.SessionId,
         $"Tracked desktop client launch aged out without IPC registration. " +
-        $"Session: {launchState.SessionId}, PID: {launchState.ProcessId}, ElapsedMs: {elapsed.TotalMilliseconds}");
+        $"Session: {launchState.SessionId}, PID: {launchState.ProcessId}, ElapsedMs: {elapsed.TotalMilliseconds}",
+        stopProcess: true);
     }
   }
 
@@ -200,11 +207,17 @@ internal sealed class DesktopClientLaunchTracker(
     }
   }
 
-  private void Remove(int sessionId, string message)
+  private void Remove(int sessionId, string message, bool stopProcess)
   {
     if (_trackedLaunches.TryRemove(sessionId, out var removedState))
     {
       _logger.LogInformation(message);
+
+      if (stopProcess)
+      {
+        TryStopProcess(removedState.Process, removedState.ProcessId, removedState.SessionId);
+      }
+
       removedState.Dispose();
     }
   }

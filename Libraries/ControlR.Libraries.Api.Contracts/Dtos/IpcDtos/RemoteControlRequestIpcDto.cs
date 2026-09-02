@@ -10,4 +10,7 @@ public record RemoteControlRequestIpcDto(
   bool NotifyUserOnSessionStart,
   bool RequireConsent,
   string? ViewerConnectionId,
-  string? ViewerName);
+  string? ViewerName,
+  Guid? AssistanceAuthorizationId,
+  Guid? AssistanceConnectorInstanceId,
+  long? AssistanceEnableGeneration);
