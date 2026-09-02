@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using ControlR.Libraries.Shared.Services.Processes;
 using ControlR.Libraries.Shared.Services.FileSystem;
 using ControlR.Libraries.Shared.Logging;
+using ControlR.Agent.Common.Services.Windows.Internals;
 
 namespace ControlR.Agent.Common.Services.Windows;
 
@@ -28,6 +29,9 @@ internal class DesktopClientWatcherWin(
   IFileSystemPathProvider pathProvider,
   ILogger<DesktopClientWatcherWin> logger) : BackgroundService
 {
+  private static readonly TimeSpan DuplicateExitTimeout = TimeSpan.FromSeconds(2);
+  private static readonly TimeSpan DuplicateShutdownTimeout = TimeSpan.FromSeconds(2);
+
   private readonly IDesktopClientFileVerifier _desktopClientFileVerifier = desktopClientFileVerifier;
   private readonly IDesktopClientRepairCoordinator _desktopClientRepairCoordinator = desktopClientRepairCoordinator;
   private readonly IDesktopSessionProvider _desktopSessionProvider = desktopSessionProvider;
@@ -177,13 +181,13 @@ internal class DesktopClientWatcherWin(
     try
     {
       // Get all IPC servers grouped by session ID
-      var serversBySession = new Dictionary<int, List<IpcServerRecord>>();
+      var serversBySession = new Dictionary<int, List<int>>();
 
-      foreach (var serverRecord in _ipcServerStore.Servers.Values)
+      foreach (var (processId, serverRecord) in _ipcServerStore.Servers)
       {
         if (!TryGetProcessSessionId(serverRecord.Process, out var sessionId))
         {
-          if (_ipcServerStore.TryRemove(serverRecord.Process.Id, out var removedRecord) && removedRecord is not null)
+          if (_ipcServerStore.TryRemove(processId, out var removedRecord) && removedRecord is not null)
           {
             Disposer.DisposeAll(removedRecord.Process, removedRecord.Server);
           }
@@ -197,7 +201,7 @@ internal class DesktopClientWatcherWin(
           serversBySession[sessionId] = serversInSession;
         }
 
-        serversInSession.Add(serverRecord);
+        serversInSession.Add(processId);
       }
 
       // For each session with active clients, find and dispose duplicates
@@ -210,7 +214,7 @@ internal class DesktopClientWatcherWin(
 
         // Find duplicate servers (those with different PIDs than the active client)
         var duplicates = serversInSession
-          .Where(s => s.Process.Id != activeClient.ProcessId)
+          .Where(processId => processId != activeClient.ProcessId)
           .ToList();
 
         if (duplicates.Count == 0)
@@ -224,36 +228,13 @@ internal class DesktopClientWatcherWin(
           duplicates.Count,
           activeClient.SystemSessionId,
           activeClient.ProcessId,
-          string.Join(", ", duplicates.Select(d => d.Process.Id)));
+          string.Join(", ", duplicates));
 
-        // Send shutdown command to each duplicate and remove from store
-        foreach (var duplicate in duplicates)
-        {
-          try
-          {
-            _logger.LogInformation(
-              "Shutting down duplicate desktop client. Session: {SessionId}, PID: {ProcessId}",
-              activeClient.SystemSessionId,
-              duplicate.Process.Id);
-
-            var shutdownDto = new ShutdownCommandDto("Duplicate client detected");
-            await duplicate.Server.Client.ShutdownDesktopClient(shutdownDto);
-
-            // Remove from store
-            _ipcServerStore.TryRemove(duplicate.Process.Id, out _);
-
-            // Dispose the server and process
-            Disposer.DisposeAll(duplicate.Process, duplicate.Server);
-          }
-          catch (Exception ex)
-          {
-            _logger.LogWarning(
-              ex,
-              "Failed to shutdown duplicate desktop client. Session: {SessionId}, PID: {ProcessId}",
-              activeClient.SystemSessionId,
-              duplicate.Process.Id);
-          }
-        }
+        await Task.WhenAll(duplicates.Select(processId =>
+          StopDuplicateClient(
+            activeClient.SystemSessionId,
+            processId,
+            cancellationToken)));
       }
     }
     catch (Exception ex)
@@ -265,6 +246,7 @@ internal class DesktopClientWatcherWin(
   private async Task<bool> LaunchDesktopClient(int sessionId, CancellationToken cancellationToken)
   {
     IProcess? trackedProcess = null;
+    var trackedProcessId = -1;
 
     try
     {
@@ -292,34 +274,35 @@ internal class DesktopClientWatcherWin(
       }
 
       trackedProcess = process;
+      trackedProcessId = trackedProcess.Id;
       _launchTracker.TrackLaunch(sessionId, trackedProcess);
 
       _logger.LogInformation(
         "Launched desktop client process for session {SessionId}. PID: {ProcessId}",
         sessionId,
-        trackedProcess.Id);
+        trackedProcessId);
 
       using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
       using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
 
       var registeredQuickly = await _waiter.WaitFor(
-        () => trackedProcess.HasExited || _ipcServerStore.ContainsServer(trackedProcess.Id),
+        () => trackedProcess.HasExited || _ipcServerStore.ContainsServer(trackedProcessId),
         TimeSpan.FromMilliseconds(250),
         throwOnCancellation: false,
         cancellationToken: linkedCts.Token);
 
-      if (registeredQuickly && _ipcServerStore.ContainsServer(trackedProcess.Id))
+      if (registeredQuickly && _ipcServerStore.ContainsServer(trackedProcessId))
       {
         _logger.LogInformation(
           "Desktop client for session {SessionId} registered with IPC shortly after launch. PID: {ProcessId}",
           sessionId,
-          trackedProcess.Id);
+          trackedProcessId);
         return true;
       }
 
       if (trackedProcess.HasExited)
       {
-        if (_launchTracker.TryRemove(sessionId, trackedProcess.Id, out var removedState) &&
+        if (_launchTracker.TryRemove(sessionId, trackedProcessId, out var removedState) &&
             removedState is not null)
         {
           removedState.Dispose();
@@ -328,24 +311,25 @@ internal class DesktopClientWatcherWin(
         _logger.LogWarning(
           "Desktop client process for session {SessionId} exited before IPC registration completed. PID: {ProcessId}",
           sessionId,
-          trackedProcess.Id);
+          trackedProcessId);
         return false;
       }
 
       _logger.LogInformation(
         "Desktop client process for session {SessionId} is still starting. PID: {ProcessId}. Waiting for IPC registration in the background.",
         sessionId,
-        trackedProcess.Id);
+        trackedProcessId);
 
       return true;
     }
     catch (Exception ex)
     {
       if (trackedProcess is not null &&
-          _launchTracker.TryRemove(sessionId, trackedProcess.Id, out var removedState) &&
+          trackedProcessId >= 0 &&
+          _launchTracker.TryRemove(sessionId, trackedProcessId, out var removedState) &&
           removedState is not null)
       {
-        removedState.Dispose();
+        StopFailedLaunch(removedState);
       }
 
       _logger.LogErrorDeduped(
@@ -353,6 +337,115 @@ internal class DesktopClientWatcherWin(
         args: sessionId,
         exception: ex);
       return false;
+    }
+  }
+
+  private static bool IsProcessAlive(IProcess process)
+  {
+    try
+    {
+      return !process.HasExited;
+    }
+    catch
+    {
+      return false;
+    }
+  }
+
+  private async Task StopDuplicateClient(
+    int sessionId,
+    int processId,
+    CancellationToken cancellationToken)
+  {
+    if (!_ipcServerStore.TryRemove(processId, out var duplicate))
+    {
+      return;
+    }
+
+    try
+    {
+      _logger.LogInformation(
+        "Stopping duplicate desktop client. Session: {SessionId}, PID: {ProcessId}",
+        sessionId,
+        processId);
+
+      try
+      {
+        var shutdownDto = new ShutdownCommandDto("Duplicate client detected");
+        await duplicate.Server.Client
+          .ShutdownDesktopClient(shutdownDto)
+          .WaitAsync(DuplicateShutdownTimeout, cancellationToken);
+      }
+      catch (Exception ex)
+      {
+        _logger.LogWarning(
+          ex,
+          "Duplicate desktop client did not accept the shutdown request. Session: {SessionId}, PID: {ProcessId}",
+          sessionId,
+          processId);
+      }
+
+      if (IsProcessAlive(duplicate.Process))
+      {
+        try
+        {
+          using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+          cts.CancelAfter(DuplicateExitTimeout);
+          await duplicate.Process.WaitForExitAsync(cts.Token);
+        }
+        catch (Exception ex)
+        {
+          _logger.LogDebug(
+            ex,
+            "Duplicate desktop client did not exit during the graceful window. Session: {SessionId}, PID: {ProcessId}",
+            sessionId,
+            processId);
+        }
+      }
+
+      if (IsProcessAlive(duplicate.Process))
+      {
+        duplicate.Process.Kill();
+        _logger.LogInformation(
+          "Terminated duplicate desktop client. Session: {SessionId}, PID: {ProcessId}",
+          sessionId,
+          processId);
+      }
+    }
+    catch (Exception ex)
+    {
+      _logger.LogWarning(
+        ex,
+        "Failed to terminate duplicate desktop client. Session: {SessionId}, PID: {ProcessId}",
+        sessionId,
+        processId);
+    }
+    finally
+    {
+      Disposer.DisposeAll(duplicate.Process, duplicate.Server);
+    }
+  }
+
+  private void StopFailedLaunch(DesktopClientLaunchState launchState)
+  {
+    try
+    {
+      if (IsProcessAlive(launchState.Process))
+      {
+        launchState.Process.Kill();
+      }
+    }
+    catch (Exception ex)
+    {
+      _logger.LogWarning(
+        ex,
+        "Failed to stop desktop client after its launch workflow failed. Session: {SessionId}, PID: {ProcessId}",
+        launchState.SessionId,
+        launchState.ProcessId);
+    }
+    finally
+    {
+      launchState.Dispose();
     }
   }
 

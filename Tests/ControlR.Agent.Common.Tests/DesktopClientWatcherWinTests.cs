@@ -1,9 +1,13 @@
+using System.Collections.ObjectModel;
 using System.Runtime.Versioning;
 using ControlR.Agent.Common.Interfaces;
 using ControlR.Agent.Common.Services;
 using ControlR.Agent.Common.Services.Windows;
 using ControlR.Agent.Shared.Services;
 using ControlR.Libraries.Api.Contracts.Dtos.Devices;
+using ControlR.Libraries.Api.Contracts.Dtos.IpcDtos;
+using ControlR.Libraries.Ipc;
+using ControlR.Libraries.Ipc.Interfaces;
 using ControlR.Libraries.NativeInterop.Windows;
 using ControlR.Libraries.Shared.Services;
 using ControlR.Libraries.Shared.Primitives;
@@ -45,12 +49,29 @@ public class DesktopClientWatcherWinTests
 
     tracker.Reconcile(activeSessionIds, []);
 
+    process.Verify(x => x.Kill(), Times.Once);
     Assert.Equal(0, tracker.Count);
     Assert.False(tracker.IsSessionCovered(5, []));
   }
 
   [Fact]
-  public void Reconcile_WhenIpcRegistrationObserved_ClearsTrackedLaunch()
+  public void Reconcile_WhenTrackedProcessRegisters_ClearsTrackedLaunchWithoutStoppingProcess()
+  {
+    HashSet<int> activeSessionIds = [5];
+    var tracker = new DesktopClientLaunchTracker(_timeProvider, _launchTrackerLogger);
+    var process = CreateProcess(processId: 101, sessionId: 5, hasExited: false);
+
+    tracker.TrackLaunch(5, process.Object);
+    tracker.Reconcile(
+      activeSessionIds,
+      [new DesktopSession { ProcessId = 101, SystemSessionId = 5 }]);
+
+    process.Verify(x => x.Kill(), Times.Never);
+    Assert.Equal(0, tracker.Count);
+  }
+
+  [Fact]
+  public void Reconcile_WhenDifferentProcessRegisters_StopsTrackedLaunch()
   {
     HashSet<int> activeSessionIds = [5];
     var tracker = new DesktopClientLaunchTracker(_timeProvider, _launchTrackerLogger);
@@ -61,6 +82,7 @@ public class DesktopClientWatcherWinTests
       activeSessionIds,
       [new DesktopSession { ProcessId = 202, SystemSessionId = 5 }]);
 
+    process.Verify(x => x.Kill(), Times.Once);
     Assert.Equal(0, tracker.Count);
   }
 
@@ -77,6 +99,7 @@ public class DesktopClientWatcherWinTests
 
     tracker.Reconcile(activeSessionIds, []);
 
+    process.Verify(x => x.Kill(), Times.Never);
     Assert.Equal(0, tracker.Count);
     Assert.False(tracker.IsSessionCovered(5, []));
   }
@@ -92,6 +115,7 @@ public class DesktopClientWatcherWinTests
 
     tracker.Reconcile(activeSessionIds, []);
 
+    process.Verify(x => x.Kill(), Times.Once);
     Assert.Equal(0, tracker.Count);
     Assert.False(tracker.IsSessionCovered(5, []));
   }
@@ -120,6 +144,98 @@ public class DesktopClientWatcherWinTests
       CancellationToken.None);
 
     repairCoordinator.Verify(x => x.ReportHealthy("desktop-installation"), Times.Once);
+  }
+
+  [Fact]
+  public async Task RunIteration_WhenConfirmedDuplicateRejectsShutdown_RemovesAndStopsDuplicate()
+  {
+    var duplicateProcess = CreateProcess(processId: 101, sessionId: 5, hasExited: false);
+    var duplicateClient = new Mock<IDesktopClientRpcService>();
+    var duplicateServer = new Mock<IIpcServer>();
+    var duplicateRecord = new IpcServerRecord(duplicateProcess.Object, duplicateServer.Object);
+    var servers = new ReadOnlyDictionary<int, IpcServerRecord>(new Dictionary<int, IpcServerRecord>
+    {
+      [101] = duplicateRecord,
+    });
+    IpcServerRecord? removedRecord = duplicateRecord;
+    var watcher = CreateWatcher();
+
+    duplicateServer.SetupGet(x => x.Client).Returns(duplicateClient.Object);
+    duplicateClient
+      .Setup(x => x.ShutdownDesktopClient(It.IsAny<ShutdownCommandDto>()))
+      .ThrowsAsync(new InvalidOperationException("IPC connection lost."));
+    duplicateProcess
+      .Setup(x => x.WaitForExitAsync(It.IsAny<CancellationToken>()))
+      .ThrowsAsync(new OperationCanceledException());
+    _ipcServerStore.SetupGet(x => x.Servers).Returns(servers);
+    _ipcServerStore
+      .Setup(x => x.TryRemove(101, out removedRecord))
+      .Returns(true);
+
+    await watcher.RunIteration(
+      [new DesktopSession { SystemSessionId = 5 }],
+      [new DesktopSession { ProcessId = 202, SystemSessionId = 5 }],
+      CancellationToken.None);
+
+    _ipcServerStore.Verify(x => x.TryRemove(101, out removedRecord), Times.Once);
+    duplicateProcess.Verify(x => x.Kill(), Times.Once);
+  }
+
+  [Fact]
+  public async Task RunIteration_WhenConfirmedDuplicateExitsGracefully_DoesNotForceStopProcess()
+  {
+    var hasExited = false;
+    var duplicateProcess = CreateProcess(processId: 101, sessionId: 5, hasExited: () => hasExited);
+    var duplicateClient = new Mock<IDesktopClientRpcService>();
+    var duplicateServer = new Mock<IIpcServer>();
+    var duplicateRecord = new IpcServerRecord(duplicateProcess.Object, duplicateServer.Object);
+    var servers = new ReadOnlyDictionary<int, IpcServerRecord>(new Dictionary<int, IpcServerRecord>
+    {
+      [101] = duplicateRecord,
+    });
+    IpcServerRecord? removedRecord = duplicateRecord;
+    var watcher = CreateWatcher();
+
+    duplicateServer.SetupGet(x => x.Client).Returns(duplicateClient.Object);
+    duplicateClient
+      .Setup(x => x.ShutdownDesktopClient(It.IsAny<ShutdownCommandDto>()))
+      .Callback(() => hasExited = true)
+      .Returns(Task.CompletedTask);
+    _ipcServerStore.SetupGet(x => x.Servers).Returns(servers);
+    _ipcServerStore
+      .Setup(x => x.TryRemove(101, out removedRecord))
+      .Returns(true);
+
+    await watcher.RunIteration(
+      [new DesktopSession { SystemSessionId = 5 }],
+      [new DesktopSession { ProcessId = 202, SystemSessionId = 5 }],
+      CancellationToken.None);
+
+    _ipcServerStore.Verify(x => x.TryRemove(101, out removedRecord), Times.Once);
+    duplicateProcess.Verify(x => x.Kill(), Times.Never);
+  }
+
+  [Fact]
+  public async Task RunIteration_WhenPendingLaunchIsWithinGrace_DoesNotLaunchReplacement()
+  {
+    IProcess? startedProcess = null;
+    var tracker = new DesktopClientLaunchTracker(_timeProvider, _launchTrackerLogger);
+    var process = CreateProcess(processId: 101, sessionId: 5, hasExited: false);
+    var watcher = CreateWatcher(launchTracker: tracker);
+
+    tracker.TrackLaunch(5, process.Object);
+
+    await watcher.RunIteration(
+      [new DesktopSession { SystemSessionId = 5 }],
+      [],
+      CancellationToken.None);
+
+    _win32Interop.Verify(x => x.CreateInteractiveSystemProcess(
+      It.IsAny<string>(),
+      It.IsAny<int>(),
+      It.IsAny<bool>(),
+      out startedProcess), Times.Never);
+    process.Verify(x => x.Kill(), Times.Never);
   }
 
   [Fact]
@@ -209,6 +325,19 @@ public class DesktopClientWatcherWinTests
     Assert.True(tracker.IsSessionCovered(5, []));
   }
 
+  [Fact]
+  public void Clear_StopsEveryPendingLaunch()
+  {
+    var tracker = new DesktopClientLaunchTracker(_timeProvider, _launchTrackerLogger);
+    var process = CreateProcess(processId: 101, sessionId: 5, hasExited: false);
+
+    tracker.TrackLaunch(5, process.Object);
+    tracker.Clear();
+
+    process.Verify(x => x.Kill(), Times.Once);
+    Assert.Equal(0, tracker.Count);
+  }
+
   private static bool CaptureLaunchCommand(string value, ref string launchedCommand)
   {
     launchedCommand = value;
@@ -257,6 +386,9 @@ public class DesktopClientWatcherWinTests
       .Setup(x => x.FileExists(It.IsAny<string>()))
       .Returns(true);
     _pathProvider.Setup(x => x.GetDesktopExecutablePath()).Returns("C:\\ControlR\\DesktopClient\\ControlR.DesktopClient.exe");
+    _ipcServerStore
+      .SetupGet(x => x.Servers)
+      .Returns(new ReadOnlyDictionary<int, IpcServerRecord>(new Dictionary<int, IpcServerRecord>()));
     _waiter
       .Setup(x => x.WaitFor(
         It.IsAny<Func<bool>>(),
